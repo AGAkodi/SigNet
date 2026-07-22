@@ -22,7 +22,7 @@ flowchart TD
     end
 
     subgraph NoxTEE ["Nox TEE Coprocessor"]
-        TEE["TEE Confidential Engine\n(FHE / Enclave Arithmetic)"]
+        TEE["TEE Confidential Engine\n(Enclave Arithmetic)"]
     end
 
     User -->|1. Submit salary & stream parameters| SDK

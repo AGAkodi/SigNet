@@ -1,28 +1,19 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.28;
+
+import {ERC7984} from "@iexec-nox/nox-confidential-contracts/contracts/token/ERC7984.sol";
+import {Nox, euint256, ebool} from "@iexec-nox/nox-protocol-contracts/contracts/sdk/Nox.sol";
 
 /**
  * @title ERC7984CreditToken
- * @dev Confidential Token implementation compliant with ERC7984 standard.
- * Underpins private balance minting and burning for Nox Private Credit vault operations.
+ * @dev Confidential Token implementation wrapping real ERC7984 base from @iexec-nox/nox-confidential-contracts.
+ * Mint and burn functions operate on real `euint256` Nox TEE handles under ConfidentialCredit vault authority.
  */
-contract ERC7984CreditToken {
-    // Token Metadata
-    string public name;
-    string public symbol;
-    uint8 public immutable decimals;
-
+contract ERC7984CreditToken is ERC7984 {
     address public owner;
     address public creditVault;
 
-    // Encrypted balance representations (handle references)
-    mapping(address => bytes32) private _encryptedBalances;
-    bytes32 private _encryptedTotalSupply;
-
-    // Events
-    event TransferEncrypted(address indexed from, address indexed to, bytes32 encryptedHandle);
-    event MintEncrypted(address indexed to, bytes32 encryptedHandle);
-    event BurnEncrypted(address indexed from, bytes32 encryptedHandle);
+    event VaultUpdated(address indexed newVault);
 
     modifier onlyVault() {
         require(msg.sender == creditVault, "ERC7984: caller is not credit vault");
@@ -34,44 +25,37 @@ contract ERC7984CreditToken {
         _;
     }
 
-    constructor(string memory _name, string memory _symbol, uint8 _decimals) {
-        name = _name;
-        symbol = _symbol;
-        decimals = _decimals;
+    constructor(
+        string memory name_,
+        string memory symbol_,
+        string memory contractURI_
+    ) ERC7984(name_, symbol_, contractURI_) {
         owner = msg.sender;
     }
 
     function setCreditVault(address _vault) external onlyOwner {
-        require(_vault != address(0), "Invalid vault address");
+        require(_vault != address(0), "ERC7984: invalid vault address");
         creditVault = _vault;
+        emit VaultUpdated(_vault);
     }
 
     /**
      * @notice Mint encrypted tokens to a recipient (called by ConfidentialCredit vault)
      * @param to Recipient address
-     * @param encryptedAmountHandle Encrypted input handle from Nox TEE / FHE engine
+     * @param amount Real euint256 encrypted handle representing quantity
      */
-    function mintEncrypted(address to, bytes32 encryptedAmountHandle) external onlyVault {
+    function mintEncrypted(address to, euint256 amount) external onlyVault returns (euint256) {
         require(to != address(0), "ERC7984: mint to zero address");
-        _encryptedBalances[to] = encryptedAmountHandle;
-        emit MintEncrypted(to, encryptedAmountHandle);
+        return _mint(to, amount);
     }
 
     /**
      * @notice Burn encrypted tokens from an account (called by ConfidentialCredit vault)
      * @param from Target account address
-     * @param encryptedAmountHandle Encrypted input handle representing burn quantity
+     * @param amount Real euint256 encrypted handle representing quantity
      */
-    function burnEncrypted(address from, bytes32 encryptedAmountHandle) external onlyVault {
+    function burnEncrypted(address from, euint256 amount) external onlyVault returns (euint256) {
         require(from != address(0), "ERC7984: burn from zero address");
-        _encryptedBalances[from] = encryptedAmountHandle;
-        emit BurnEncrypted(from, encryptedAmountHandle);
-    }
-
-    /**
-     * @notice Returns the encrypted balance handle for an account
-     */
-    function balanceOfEncrypted(address account) external view returns (bytes32) {
-        return _encryptedBalances[account];
+        return _burn(from, amount);
     }
 }

@@ -1,0 +1,15 @@
+{
+  "name": "signet-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nox Private Credit - Salary-backed confidential lending",
+  "workspaces": [
+    "contracts",
+    "frontend"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces"
+  },
+  "devDependencies": {}
+}

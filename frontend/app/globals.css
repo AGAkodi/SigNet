@@ -1,0 +1,86 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&display=swap');
+
+:root {
+  /* 5 Named Design Tokens */
+  --ink: #12141A;
+  --paper: #F7F5F0;
+  --vault-brass: #B8933E;
+  --seal-teal: #2E5C57;
+  --signal-red: #B84A3E;
+
+  /* Extended Surfaces & Typography */
+  --ink-surface: #1A1D26;
+  --ink-border: #2A2E3D;
+  --paper-muted: #8E95A5;
+  
+  --font-serif: 'Source Serif 4', Georgia, serif;
+  --font-sans: 'IBM Plex Sans', -apple-system, sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-sans);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, .font-serif {
+  font-family: var(--font-serif);
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+/* Hairline Ledger Rules */
+.hairline-brass {
+  border-bottom: 1px solid rgba(184, 147, 62, 0.3);
+}
+
+.hairline-border {
+  border: 1px solid var(--ink-border);
+}
+
+/* Wax Seal Glyph Component Styling */
+.wax-seal-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background-color: var(--seal-teal);
+  color: var(--paper);
+  padding: 4px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--vault-brass);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.wax-seal-badge:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(184, 147, 62, 0.25);
+}
+
+.wax-seal-icon {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #D4AF37 0%, var(--vault-brass) 100%);
+  display: inline-block;
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wax-seal-badge {
+    transition: none;
+  }
+}

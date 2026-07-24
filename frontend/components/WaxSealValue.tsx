@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { noxSdk } from "../lib/noxSdk";
+import { ScrambleNumber } from "./ScrambleNumber";
 
 interface WaxSealValueProps {
   label: string;
@@ -49,44 +50,51 @@ export const WaxSealValue: React.FC<WaxSealValueProps> = ({
   };
 
   return (
-    <div className="flex flex-col gap-1">
-      <span className="text-xs uppercase tracking-wider text-[#8E95A5] font-mono">
+    <div className="flex flex-col gap-1.5">
+      <span className="text-xs uppercase tracking-wider text-halo-dim font-mono">
         {label}
       </span>
 
       <div className="flex items-center gap-3">
-        {isUnsealed ? (
-          <div className="flex items-center gap-2">
-            <span className="font-serif text-2xl font-semibold text-[#F7F5F0]">
-              {actualValue}
-            </span>
-            <button
-              onClick={handleToggleSeal}
-              onKeyDown={handleKeyDown}
-              tabIndex={0}
-              title="Click to Seal"
-              className="text-xs font-mono px-2 py-1 bg-[#1A1D26] hover:bg-[#2A2E3D] border border-[#B8933E]/40 text-[#B8933E] rounded transition-colors focus:outline-none focus:ring-2 focus:ring-[#B8933E]"
-            >
-              🔒 Seal Value
-            </button>
+        <button
+          onClick={handleToggleSeal}
+          onKeyDown={handleKeyDown}
+          tabIndex={0}
+          aria-label={`${isUnsealed ? "Seal" : "Unseal"} ${label}`}
+          className={`group flex items-center justify-between gap-3 px-3.5 py-2 rounded-lg border transition-all text-left focus:outline-none focus:ring-1 focus:ring-patina-400 ${
+            isUnsealed
+              ? "bg-mist-900 border-patina-400/50 hover:border-patina-400 text-halo-soft"
+              : "bg-mist-900/90 border-mist-700 hover:border-patina-400/80 text-halo-DEFAULT"
+          }`}
+        >
+          {/* Status Cipher Indicator Dot */}
+          <span
+            className={`w-2 h-2 rounded-full transition-colors ${
+              isUnsealed ? "bg-patina-400 shadow-[0_0_6px_#BFA24C]" : "bg-mist-500 group-hover:bg-patina-400"
+            }`}
+          />
+
+          {/* Living Cipher Scramble Number */}
+          <div className="flex flex-col">
+            <ScrambleNumber
+              value={actualValue}
+              revealed={isUnsealed}
+              className={`font-mono font-bold ${
+                size === "lg" ? "text-2xl" : size === "sm" ? "text-sm" : "text-lg"
+              } ${isUnsealed ? "text-halo-soft" : "text-patina-300"}`}
+            />
+            {!isUnsealed && (
+              <span className="text-[10px] text-halo-deep font-mono tracking-tight">
+                {isDecrypting ? "DECRYPTING TEE..." : `ENCRYPTED (${encryptedHandle.slice(0, 6)}...${encryptedHandle.slice(-4)})`}
+              </span>
+            )}
           </div>
-        ) : (
-          <button
-            onClick={handleToggleSeal}
-            onKeyDown={handleKeyDown}
-            tabIndex={0}
-            aria-label={`Unseal ${label}`}
-            className="wax-seal-badge focus:outline-none focus:ring-2 focus:ring-[#B8933E]"
-          >
-            <span className="wax-seal-icon" />
-            <span>
-              {isDecrypting ? "Decrypting TEE..." : "SEALED"}
-            </span>
-            <span className="text-[11px] text-[#8E95A5] font-mono">
-              ({encryptedHandle.slice(0, 6)}...{encryptedHandle.slice(-4)})
-            </span>
-          </button>
-        )}
+
+          {/* Seal / Unseal Action Label */}
+          <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-mist-800 text-halo-dim border border-mist-700 group-hover:text-halo-soft group-hover:border-mist-600 transition-colors ml-2">
+            {isUnsealed ? "🔒 Seal" : "🔓 Unseal"}
+          </span>
+        </button>
       </div>
     </div>
   );

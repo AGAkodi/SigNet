@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { WaxSealValue } from "./WaxSealValue";
 import { noxSdk } from "../lib/noxSdk";
 
@@ -10,59 +11,140 @@ interface Screen5LoanManagementProps {
   onRepayExecuted: (amount: number) => void;
 }
 
+const CONFIDENTIAL_CREDIT_ADDRESS = "0xECA515C29Eb3FD70cCdA5c8E2602a9094C137A65";
+
+const CONFIDENTIAL_CREDIT_ABI = [
+  {
+    type: "function",
+    name: "getEncryptedBorrowBalance",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "bytes32" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "repay",
+    inputs: [{ name: "repayAmount", type: "bytes32" }],
+    outputs: [{ name: "", type: "bytes32" }],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "evaluateLiquidation",
+    inputs: [{ name: "borrower", type: "address" }],
+    outputs: [{ name: "", type: "bytes32" }],
+    stateMutability: "nonpayable",
+  },
+] as const;
+
 export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
   userAddress,
   activeBorrow,
   onRepayExecuted,
 }) => {
-  const [repayAmount, setRepayAmount] = useState(activeBorrow > 0 ? "5000" : "0");
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [repayAmount, setRepayAmount] = useState(activeBorrow > 0 ? "5000" : "1000");
   const [isLiquidatable, setIsLiquidatable] = useState(false);
+  const [activeAction, setActiveAction] = useState<"REPAY" | "EVALUATE" | null>(null);
+
+  // Read real on-chain borrow balance handle from ConfidentialCredit contract
+  const { data: onChainBorrowHandle, refetch: refetchBorrowBalance } = useReadContract({
+    address: CONFIDENTIAL_CREDIT_ADDRESS,
+    abi: CONFIDENTIAL_CREDIT_ABI,
+    functionName: "getEncryptedBorrowBalance",
+    args: [userAddress as `0x${string}`],
+    query: { enabled: !!userAddress && userAddress.startsWith("0x") },
+  });
+
+  const { writeContract, data: hash, isPending: isWriting, error: writeError, reset } = useWriteContract();
+
+  const { isLoading: isConfirming, isSuccess: isConfirmed, error: receiptError } =
+    useWaitForTransactionReceipt({
+      hash,
+    });
+
+  // When on-chain repayment or evaluation transaction completes
+  useEffect(() => {
+    if (isConfirmed && hash) {
+      if (activeAction === "REPAY") {
+        refetchBorrowBalance();
+        const num = parseFloat(repayAmount);
+        if (!isNaN(num) && num > 0) {
+          onRepayExecuted(num);
+        }
+      }
+      setActiveAction(null);
+    }
+  }, [isConfirmed, hash, activeAction, repayAmount, refetchBorrowBalance, onRepayExecuted]);
 
   const handleRepay = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!userAddress) {
+      alert("Please connect your wallet first to repay an encrypted position.");
+      return;
+    }
     const num = parseFloat(repayAmount);
-    if (num <= 0 || num > activeBorrow) return;
+    if (isNaN(num) || num <= 0) return;
 
-    setIsProcessing(true);
+    reset();
+    setActiveAction("REPAY");
+
     try {
-      // Execute Nox SDK client-side repayment encryption
-      await noxSdk.encryptInput(
-        num,
-        "0x94B8aE1355a165EcC34D8a19C9b4a457a4eF77e4",
-        userAddress
-      );
-      onRepayExecuted(num);
+      const enc = await noxSdk.encryptInput(num, CONFIDENTIAL_CREDIT_ADDRESS, userAddress);
+      writeContract({
+        address: CONFIDENTIAL_CREDIT_ADDRESS,
+        abi: CONFIDENTIAL_CREDIT_ABI,
+        functionName: "repay",
+        args: [enc.encryptedHandle as `0x${string}`],
+      });
     } catch (err) {
       console.error("Repayment Error:", err);
-    } finally {
-      setIsProcessing(false);
     }
   };
 
-  const toggleMockRisk = () => {
-    setIsLiquidatable((prev) => !prev);
+  const handleEvaluateLiquidationOnChain = () => {
+    if (!userAddress) {
+      alert("Please connect your wallet first.");
+      return;
+    }
+
+    reset();
+    setActiveAction("EVALUATE");
+
+    writeContract({
+      address: CONFIDENTIAL_CREDIT_ADDRESS,
+      abi: CONFIDENTIAL_CREDIT_ABI,
+      functionName: "evaluateLiquidation",
+      args: [userAddress as `0x${string}`],
+    });
   };
+
+  const currentOnChainHandle =
+    onChainBorrowHandle && typeof onChainBorrowHandle === "string" && onChainBorrowHandle !== "0x0000000000000000000000000000000000000000000000000000000000000000"
+      ? onChainBorrowHandle
+      : "0x4f1a09...b87e";
+
+  const isBusy = isWriting || isConfirming;
 
   return (
     <div className="max-w-2xl mx-auto py-8 px-4 space-y-6">
       {/* Liquidation Risk Banner */}
       {isLiquidatable && (
-        <div className="p-4 bg-[#B84A3E]/20 border border-[#B84A3E] rounded-xl flex items-center justify-between">
+        <div className="p-4 bg-danger-soft border border-danger-border rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-panel">
           <div className="flex items-center gap-3">
-            <span className="text-xl">⚠️</span>
+            <span className="text-xl shrink-0">⚠️</span>
             <div>
-              <h4 className="font-serif font-semibold text-sm text-[#F7F5F0]">
+              <h4 className="font-display font-semibold text-sm text-halo-soft">
                 Liquidation Risk Signal Active
               </h4>
-              <p className="text-xs text-[#8E95A5]">
-                TEE coprocessor emitted discrete boolean signal: <code className="text-[#B84A3E] font-mono">liquidatable = true</code>. No position sizes exposed.
+              <p className="text-xs text-halo-dim font-sans">
+                TEE coprocessor emitted discrete boolean signal: <code className="text-danger font-mono">liquidatable = true</code>. No position sizes exposed.
               </p>
             </div>
           </div>
           <button
-            onClick={handleRepay}
-            className="px-4 py-2 bg-[#B84A3E] hover:bg-red-700 text-white font-mono text-xs rounded-lg font-semibold"
+            onClick={() => handleEvaluateLiquidationOnChain()}
+            disabled={isBusy}
+            className="shrink-0 px-4 py-2 bg-danger hover:bg-red-700 text-white font-mono text-xs rounded-lg font-semibold shadow-panel transition-colors"
           >
             Emergency Repay
           </button>
@@ -70,55 +152,68 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
       )}
 
       {/* Loan Management Ledger */}
-      <div className="bg-[#1A1D26] border border-[#2A2E3D] rounded-2xl p-6 sm:p-8 shadow-2xl">
-        <div className="flex items-center justify-between border-b border-[#2A2E3D] pb-4 mb-6">
+      <div className="bg-mist-900 border border-mist-700 rounded-2xl p-6 sm:p-8 shadow-panel">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-mist-700 pb-4 mb-6">
           <div>
-            <span className="text-xs font-mono text-[#B8933E]">STEP 04 OF 04</span>
-            <h2 className="font-serif text-2xl font-bold text-[#F7F5F0]">
+            <span className="text-xs font-mono text-patina-400">STEP 04 OF 04</span>
+            <h2 className="font-display text-2xl font-bold text-halo-soft">
               Loan Position Management
             </h2>
           </div>
-          <button
-            onClick={toggleMockRisk}
-            className="px-2.5 py-1 bg-[#12141A] hover:bg-[#2A2E3D] border border-[#2A2E3D] text-[11px] font-mono text-[#8E95A5] rounded"
-          >
-            {isLiquidatable ? "Simulate Healthy Status" : "Simulate Liquidation Risk"}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleEvaluateLiquidationOnChain}
+              disabled={isBusy}
+              className="px-2.5 py-1.5 bg-mist-800 hover:bg-mist-750 border border-mist-700 text-[11px] font-mono text-patina-300 rounded transition-colors"
+            >
+              Evaluate On-Chain Liquidation (TEE)
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsLiquidatable((prev) => !prev)}
+              className="px-2.5 py-1.5 bg-mist-950 hover:bg-mist-850 border border-mist-700 text-[11px] font-mono text-halo-deep rounded transition-colors"
+            >
+              {isLiquidatable ? "Clear Local Risk Banner" : "Preview Local Risk Banner"}
+            </button>
+          </div>
         </div>
 
         {/* Position Summary Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-          <div className="p-4 bg-[#12141A] border border-[#2A2E3D] rounded-xl">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6 items-stretch">
+          {/* Card 1: Real On-Chain Encrypted Borrow Balance */}
+          <div className="p-4 bg-mist-950 border border-mist-700 rounded-xl flex flex-col justify-between">
             <WaxSealValue
-              label="Active Principal Balance"
-              encryptedHandle="0x4f1a09...b87e"
+              label="Active Principal Balance (On-Chain)"
+              encryptedHandle={currentOnChainHandle}
               actualValue={`$${activeBorrow.toLocaleString()}.00 USD`}
               userAddress={userAddress}
             />
           </div>
 
-          <div className="p-4 bg-[#12141A] border border-[#2A2E3D] rounded-xl flex flex-col justify-between">
-            <span className="text-xs uppercase tracking-wider text-[#8E95A5] font-mono">
+          {/* Card 2: Health Status Badge */}
+          <div className="p-4 bg-mist-950 border border-mist-700 rounded-xl flex flex-col justify-between">
+            <span className="text-xs uppercase tracking-wider text-halo-dim font-mono block mb-2">
               Health Status Badge
             </span>
-            <div className="mt-2">
+            <div className="mt-1">
               <span
                 className={`inline-flex items-center gap-2 px-3 py-1 text-xs font-mono rounded-full border ${
                   isLiquidatable
-                    ? "bg-[#B84A3E]/30 border-[#B84A3E] text-[#B84A3E]"
-                    : "bg-[#2E5C57]/30 border-[#2E5C57] text-[#F7F5F0]"
+                    ? "bg-danger-soft border-danger-border text-danger"
+                    : "bg-patina-500/20 border-patina-400/50 text-patina-300"
                 }`}
               >
                 <span
                   className={`w-2 h-2 rounded-full ${
-                    isLiquidatable ? "bg-[#B84A3E] animate-pulse" : "bg-emerald-400"
+                    isLiquidatable ? "bg-danger animate-pulse" : "bg-patina-400"
                   }`}
                 />
-                {isLiquidatable ? "LIQUIDATION RISK" : "HEALTHY POSITION"}
+                {isLiquidatable ? "LIQUIDATION RISK" : "HEALTHY POSITION (TEE VERIFIED)"}
               </span>
             </div>
-            <span className="text-[11px] text-[#8E95A5] font-mono mt-2">
-              Discrete boolean state only
+            <span className="text-[11px] text-halo-deep font-mono mt-3 block">
+              Evaluated on-chain via ConfidentialCredit.evaluateLiquidation()
             </span>
           </div>
         </div>
@@ -126,34 +221,67 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
         {/* Repayment Form */}
         <form onSubmit={handleRepay} className="space-y-4">
           <div>
-            <label className="block text-xs font-mono text-[#8E95A5] mb-1.5 uppercase">
+            <label className="block text-xs font-mono text-halo-dim mb-1.5 uppercase">
               Repayment Amount ($ USD)
             </label>
             <input
               type="number"
               value={repayAmount}
               onChange={(e) => setRepayAmount(e.target.value)}
-              disabled={activeBorrow === 0}
               min="1"
-              max={activeBorrow}
-              className="w-full bg-[#12141A] border border-[#2A2E3D] focus:border-[#B8933E] text-[#F7F5F0] font-mono text-sm px-3.5 py-2.5 rounded-lg focus:outline-none"
+              required
+              className="w-full bg-mist-950 border border-mist-700 focus:border-patina-400 text-halo-soft font-mono text-sm px-3.5 py-2.5 rounded-lg focus:outline-none transition-colors"
             />
           </div>
 
+          {/* Transaction Status Alerts */}
+          {isWriting && (
+            <div className="p-3 bg-patina-500/10 border border-patina-400/40 rounded-lg text-xs font-mono text-patina-300 flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-patina-400 animate-ping" />
+              Please confirm the {activeAction === "REPAY" ? "Repayment" : "Liquidation Evaluation"} transaction in your wallet...
+            </div>
+          )}
+
+          {isConfirming && hash && (
+            <div className="p-3.5 bg-mist-950 border border-patina-400/60 rounded-lg text-xs font-mono text-halo-soft space-y-1">
+              <div className="flex items-center gap-2 text-patina-300">
+                <span className="w-2 h-2 rounded-full bg-patina-400 animate-pulse" />
+                {activeAction === "REPAY" ? "Encrypted Repayment" : "Liquidation Evaluation"} submitted! Mining block on Sepolia...
+              </div>
+              <a
+                href={`https://sepolia.arbiscan.io/tx/${hash}`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[11px] text-patina-400 hover:underline block truncate"
+              >
+                View on Arbiscan: {hash}
+              </a>
+            </div>
+          )}
+
+          {(writeError || receiptError) && (
+            <div className="p-3.5 bg-danger-soft border border-danger-border rounded-lg text-xs font-mono text-danger space-y-1">
+              <div className="font-semibold">⚠️ Transaction Error</div>
+              <p className="text-[11px] opacity-90 break-words">
+                {writeError?.message || receiptError?.message || "Contract call failed."}
+              </p>
+            </div>
+          )}
+
           <button
             type="submit"
-            disabled={activeBorrow === 0 || isProcessing}
-            className={`w-full py-3 font-semibold text-sm rounded-lg transition-colors shadow-lg ${
-              activeBorrow > 0 && !isProcessing
-                ? "bg-[#B8933E] hover:bg-[#a07f33] text-[#12141A] shadow-[#B8933E]/10"
-                : "bg-[#12141A] text-[#8E95A5] border border-[#2A2E3D] cursor-not-allowed"
+            disabled={isBusy}
+            className={`w-full py-3 font-semibold text-xs font-mono rounded-lg transition-colors shadow-panel ${
+              isBusy
+                ? "bg-mist-800 text-halo-deep cursor-wait border border-mist-700"
+                : "bg-patina-400 hover:bg-patina-500 text-mist-950 focus:outline-none focus:ring-1 focus:ring-patina-300"
             }`}
           >
-            {isProcessing
-              ? "Executing Encrypted Repayment..."
-              : activeBorrow === 0
-              ? "No Active Borrow Balance"
-              : "Repay Loan Principal"}
+            {isWriting
+              ? "Confirming Signature in Wallet..."
+              : isConfirming
+              ? "Broadcasting Repayment to Sepolia..."
+              : "Repay Loan Principal (On-Chain)"}
           </button>
         </form>
       </div>

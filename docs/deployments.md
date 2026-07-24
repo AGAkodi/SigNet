@@ -2,26 +2,12 @@
 
 | Contract | Address | Network | Explorer Link | Notes |
 | --- | --- | --- | --- | --- |
-| `ERC7984CreditToken` | Not yet deployed — pending testnet ETH | Arbitrum Sepolia | N/A | Base confidential credit token |
-| `IncomeStream` | Not yet deployed — pending testnet ETH | Arbitrum Sepolia | N/A | Salary stream contract emitting encrypted Nox handles |
-| `ConfidentialCredit` | Not yet deployed — pending testnet ETH | Arbitrum Sepolia | N/A | Confidential credit pool & TEE coprocessor engine |
+| `ERC7984CreditToken` | `0x8f9e846c7d13B11A2CA85ac71546b48D807E2971` | Arbitrum Sepolia | [Arbiscan](https://sepolia.arbiscan.io/address/0x8f9e846c7d13B11A2CA85ac71546b48D807E2971) | Base confidential credit token |
+| `IncomeStream` | `0x42ced25B9BCC2BffeA7F928738174Dbe46e7f7cf` | Arbitrum Sepolia | [Arbiscan](https://sepolia.arbiscan.io/address/0x42ced25B9BCC2BffeA7F928738174Dbe46e7f7cf) | Salary stream contract emitting encrypted handles |
+| `ConfidentialCredit` | `0xECA515C29Eb3FD70cCdA5c8E2602a9094C137A65` | Arbitrum Sepolia | [Arbiscan](https://sepolia.arbiscan.io/address/0xECA515C29Eb3FD70cCdA5c8E2602a9094C137A65) | Confidential credit pool & TEE liquidation vault |
 
-## Network & TEE Coprocessor Information
-- **Target Network:** Arbitrum Sepolia Testnet
-- **Chain ID:** `421614`
+## Deployment Metadata
+- **Deployer Address:** `0x7530e58314e6519F204536B034296996A911Dd93`
+- **Chain ID:** 421614
 - **RPC Endpoint:** `https://sepolia-rollup.arbitrum.io/rpc`
-- **Block Explorer:** `https://sepolia.arbiscan.io/`
-- **Real Arbitrum Sepolia NoxCompute Address:** `0xd464B198f06756a1d00be223634b85E0a731c229`
-- **Local Dev Chain (31337) NoxCompute Address:** `0x39847AeBa923Cc7367d4684194091D022B3F8548`
-
-## Local Simulation & Testing (Chain ID: 31337)
-```bash
-# Execute local unit tests with Foundry
-forge test --root contracts
-
-# Execute local unit tests with Hardhat
-npx hardhat test --network localhost
-
-# Execute end-to-end Nox computation roundtrip
-npx hardhat run scripts/testNoxRoundtrip.js
-```
+- **Deployment Timestamp:** `2026-07-24T02:27:31.584Z`

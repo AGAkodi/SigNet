@@ -16,7 +16,7 @@ async function main() {
   // 1. Deploy ERC7984 Credit Token
   console.log("Deploying ERC7984CreditToken...");
   const ERC7984CreditToken = await ethers.getContractFactory("ERC7984CreditToken");
-  const creditToken = await ERC7984CreditToken.deploy("Nox Credit Token", "NOXCRED", 18);
+  const creditToken = await ERC7984CreditToken.deploy("Nox Credit Token", "NOXCRED", "");
   await creditToken.waitForDeployment();
   const tokenAddress = await creditToken.getAddress();
   console.log(`✓ ERC7984CreditToken deployed to: ${tokenAddress}`);
@@ -32,7 +32,7 @@ async function main() {
   // 3. Deploy ConfidentialCredit Vault
   console.log("Deploying ConfidentialCredit...");
   const ConfidentialCredit = await ethers.getContractFactory("ConfidentialCredit");
-  const creditVault = await ConfidentialCredit.deploy(streamAddress, tokenAddress);
+  const creditVault = await ConfidentialCredit.deploy(streamAddress, tokenAddress, 6);
   await creditVault.waitForDeployment();
   const vaultAddress = await creditVault.getAddress();
   console.log(`✓ ConfidentialCredit deployed to: ${vaultAddress}`);

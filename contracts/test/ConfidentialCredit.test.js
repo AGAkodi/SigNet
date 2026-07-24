@@ -59,10 +59,13 @@ describe("Nox Private Credit — Real Nox Primitives Suite", function () {
       expect(rate).to.not.equal(ethers.ZeroHash);
     });
 
-    it("should allow employee to claim earned salary on-chain via Nox math", async function () {
+    it("should initialize freshly created stream total earned to zero before claim and increase after claim", async function () {
       const tx = await incomeStream.connect(employer)["createStream(address,bytes32)"](borrower.address, mockIncomeRate);
       await tx.wait();
       const streamId = await incomeStream.employeeStreamId(borrower.address);
+
+      const initialTotal = await incomeStream.getTotalEarnedHandle(borrower.address);
+      expect(initialTotal).to.equal(ethers.ZeroHash);
 
       await ethers.provider.send("evm_increaseTime", [30 * 86400]);
       await ethers.provider.send("evm_mine", []);
@@ -121,6 +124,47 @@ describe("Nox Private Credit — Real Nox Primitives Suite", function () {
       const signal = await creditVault.getEncryptedLiquidationSignal(borrower.address);
       // Under healthy position ($20k borrow vs $45k capacity), liquidation boolean signal is false (0)
       expect(signal).to.equal(ethers.ZeroHash);
+    });
+
+    it("should correctly liquidate an underwater position", async function () {
+      // 1. Create stream ($5,000 / mo => $30,000 income support)
+      await incomeStream.connect(employer)["createStream(address,bytes32)"](borrower.address, mockIncomeRate);
+
+      // 2. Deposit collateral ($5,000) => Total capacity = $35,000
+      const lowCollateral = ethers.zeroPadValue(ethers.toBeHex(5000), 32);
+      await creditVault.connect(borrower)["depositCollateral(bytes32)"](lowCollateral);
+
+      // 3. Request borrows totaling $40,000 ($20,000 x 2)
+      await creditVault.connect(borrower)["requestBorrow(bytes32)"](mockBorrow);
+      await creditVault.connect(borrower)["requestBorrow(bytes32)"](mockBorrow);
+
+      // 4. Evaluate liquidation: borrow balance ($40k) exceeds total capacity ($35k)
+      await creditVault.evaluateLiquidation(borrower.address);
+      const signal = await creditVault.getEncryptedLiquidationSignal(borrower.address);
+      expect(signal).to.equal(ethers.zeroPadValue(ethers.toBeHex(1), 32));
+
+      // 5. Liquidate position with valid decryption proof
+      const validProof = "0x01";
+      await creditVault.connect(liquidator).liquidate(borrower.address, validProof);
+
+      // 6. Assert collateral and borrow balance handles are cleared to zero
+      const collateral = await creditVault.getEncryptedCollateral(borrower.address);
+      const borrowBalance = await creditVault.getEncryptedBorrowBalance(borrower.address);
+      expect(collateral).to.equal(ethers.ZeroHash);
+      expect(borrowBalance).to.equal(ethers.ZeroHash);
+    });
+
+    it("should revert liquidation attempt on a healthy position", async function () {
+      await incomeStream.connect(employer)["createStream(address,bytes32)"](borrower.address, mockIncomeRate);
+      await creditVault.connect(borrower)["depositCollateral(bytes32)"](mockCollateral);
+      await creditVault.connect(borrower)["requestBorrow(bytes32)"](mockBorrow);
+
+      await creditVault.evaluateLiquidation(borrower.address);
+
+      const validProof = "0x01";
+      await expect(
+        creditVault.connect(liquidator).liquidate(borrower.address, validProof)
+      ).to.be.reverted;
     });
   });
 });

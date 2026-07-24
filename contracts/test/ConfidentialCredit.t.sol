@@ -57,6 +57,10 @@ contract ConfidentialCreditTest is Test {
         euint256 rate = incomeStream.getIncomeRateHandle(borrower);
         assertTrue(Nox.isInitialized(rate));
 
+        // Assert fresh stream total earned is 0 before any claim
+        euint256 initialTotal = incomeStream.getTotalEarnedHandle(borrower);
+        assertEq(euint256.unwrap(initialTotal), bytes32(0));
+
         // Warp time by 30 days and claim salary
         vm.warp(block.timestamp + 30 days);
         vm.startPrank(borrower);
@@ -64,6 +68,7 @@ contract ConfidentialCreditTest is Test {
         vm.stopPrank();
 
         assertTrue(Nox.isInitialized(updatedTotal));
+        assertTrue(uint256(euint256.unwrap(updatedTotal)) > 0);
     }
 
     function test_DepositCollateral() public {
@@ -148,5 +153,52 @@ contract ConfidentialCreditTest is Test {
         ebool signal = creditVault.evaluateLiquidation(borrower);
         // Position is healthy ($20k borrow vs $45k capacity), so liquidation signal is 0 (false)
         assertEq(ebool.unwrap(signal), bytes32(0));
+    }
+
+    function test_LiquidationFlow_TriggersWhenUnderwater() public {
+        // 1. Create stream ($5,000 / mo => $30,000 income support)
+        vm.prank(employer);
+        incomeStream.createStream(borrower, mockIncomeRate);
+
+        // 2. Deposit collateral ($5,000) => Total capacity = $35,000
+        euint256 lowCollateral = Nox.toEuint256(5000);
+        vm.startPrank(borrower);
+        creditVault.depositCollateral(lowCollateral);
+
+        // 3. Request borrows totaling $40,000 ($20,000 x 2, both within $30k per-request capacity)
+        creditVault.requestBorrow(mockBorrow);
+        creditVault.requestBorrow(mockBorrow);
+        vm.stopPrank();
+
+        // 4. Evaluate liquidation: borrow balance ($40k) exceeds total capacity ($35k)
+        ebool signal = creditVault.evaluateLiquidation(borrower);
+        assertEq(ebool.unwrap(signal), bytes32(uint256(1)));
+
+        // 5. Liquidate position with valid decryption proof
+        bytes memory proof = hex"01";
+        vm.prank(liquidator);
+        creditVault.liquidate(borrower, proof);
+
+        // 6. Assert collateral and borrow balance handles are cleared to zero
+        assertEq(euint256.unwrap(creditVault.getEncryptedCollateral(borrower)), bytes32(0));
+        assertEq(euint256.unwrap(creditVault.getEncryptedBorrowBalance(borrower)), bytes32(0));
+    }
+
+    function test_Liquidation_RevertsWhenHealthy() public {
+        // Setup healthy borrow position ($20k borrow vs $45k capacity)
+        vm.prank(employer);
+        incomeStream.createStream(borrower, mockIncomeRate);
+
+        vm.startPrank(borrower);
+        creditVault.depositCollateral(mockCollateral);
+        creditVault.requestBorrow(mockBorrow);
+        vm.stopPrank();
+
+        creditVault.evaluateLiquidation(borrower);
+
+        bytes memory proof = hex"01";
+        vm.prank(liquidator);
+        vm.expectRevert();
+        creditVault.liquidate(borrower, proof);
     }
 }

@@ -93,14 +93,17 @@ contract IncomeStream {
 
         employeeStreamId[employee] = streamId;
         _encryptedMonthlyRate[employee] = rate;
-        _encryptedTotalEarned[employee] = rate; // Initial balance handle reference
+        euint256 initialEarned = Nox.toEuint256(0);
+        _encryptedTotalEarned[employee] = initialEarned;
 
         // Grant access permissions for employee and this contract
         Nox.allow(rate, employee);
         Nox.allowThis(rate);
+        Nox.allow(initialEarned, employee);
+        Nox.allowThis(initialEarned);
 
         emit StreamCreated(streamId, msg.sender, employee);
-        emit EncryptedEarnedHandleEmitted(employee, rate, block.timestamp);
+        emit EncryptedEarnedHandleEmitted(employee, initialEarned, block.timestamp);
 
         return streamId;
     }

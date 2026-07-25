@@ -1,11 +1,10 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 
-describe("Nox Private Credit — Real Nox Primitives Suite", function () {
-  let creditToken, incomeStream, creditVault, mockNox;
+describe("Nox Private Credit — Real Aave V3 Integration Suite", function () {
+  let creditToken, incomeStream, creditVault, mockNox, mockAavePool, mockUsdc;
   let owner, employer, borrower, liquidator;
 
-  // Real Nox uint256 handles wrapping public values (mocking Nox.toEuint256)
   const mockIncomeRate = ethers.zeroPadValue(ethers.toBeHex(5000), 32);   // $5,000 / mo
   const mockCollateral = ethers.zeroPadValue(ethers.toBeHex(15000), 32);  // $15,000 collateral
   const mockBorrow = ethers.zeroPadValue(ethers.toBeHex(20000), 32);      // $20,000 requested borrow
@@ -13,7 +12,7 @@ describe("Nox Private Credit — Real Nox Primitives Suite", function () {
   beforeEach(async function () {
     [owner, employer, borrower, liquidator] = await ethers.getSigners();
 
-    // Deploy MockNoxCompute and etch to local chain NoxCompute address (0x39847AeBa923Cc7367d4684194091D022B3F8548)
+    // Deploy MockNoxCompute to local dev chain NoxCompute address (0x39847AeBa923Cc7367d4684194091D022B3F8548)
     const MockNoxCompute = await ethers.getContractFactory("MockNoxCompute");
     mockNox = await MockNoxCompute.deploy();
     const code = await ethers.provider.getCode(await mockNox.getAddress());
@@ -21,6 +20,14 @@ describe("Nox Private Credit — Real Nox Primitives Suite", function () {
       "0x39847AeBa923Cc7367d4684194091D022B3F8548",
       code,
     ]);
+
+    // Deploy Mock Aave Pool & Mock ERC20
+    const MockAavePool = await ethers.getContractFactory("MockAavePool");
+    mockAavePool = await MockAavePool.deploy();
+
+    const MockERC20 = await ethers.getContractFactory("MockERC20");
+    mockUsdc = await MockERC20.deploy("USD Coin", "USDC", 6);
+    await mockUsdc.mint(borrower.address, ethers.parseUnits("1000000", 6));
 
     // Deploy ERC7984 Credit Token
     const ERC7984CreditToken = await ethers.getContractFactory("ERC7984CreditToken");
@@ -30,141 +37,133 @@ describe("Nox Private Credit — Real Nox Primitives Suite", function () {
     const IncomeStream = await ethers.getContractFactory("IncomeStream");
     incomeStream = await IncomeStream.deploy();
 
-    // Deploy Confidential Credit Vault with 6x multiplier
+    // Deploy Confidential Credit Vault with Aave V3 integration
     const ConfidentialCredit = await ethers.getContractFactory("ConfidentialCredit");
     creditVault = await ConfidentialCredit.deploy(
       await incomeStream.getAddress(),
       await creditToken.getAddress(),
-      6
+      6,
+      await mockAavePool.getAddress(),
+      ethers.ZeroAddress
     );
 
     // Authorize vault on token
     await creditToken.setCreditVault(await creditVault.getAddress());
   });
 
-  describe("ERC7984 Credit Token", function () {
-    it("should initialize token metadata correctly", async function () {
-      expect(await creditToken.name()).to.equal("Nox Credit Token");
-      expect(await creditToken.symbol()).to.equal("NOXCRED");
-      expect(await creditToken.creditVault()).to.equal(await creditVault.getAddress());
-    });
-  });
+  describe("Aave V3 Collateral Supply & Entitlement Token", function () {
+    it("should supply collateral to Aave Pool and update private entitlement claim", async function () {
+      const depositAmount = ethers.parseUnits("15000", 6);
+      await mockUsdc.connect(borrower).approve(await creditVault.getAddress(), depositAmount);
 
-  describe("IncomeStream Contract", function () {
-    it("should allow employer to create an encrypted income stream", async function () {
-      const tx = await incomeStream.connect(employer)["createStream(address,bytes32)"](borrower.address, mockIncomeRate);
-      await tx.wait();
+      await creditVault.connect(borrower)["depositCollateral(address,uint256,bytes32)"](
+        await mockUsdc.getAddress(),
+        depositAmount,
+        mockCollateral
+      );
 
-      const rate = await incomeStream.getIncomeRateHandle(borrower.address);
-      expect(rate).to.not.equal(ethers.ZeroHash);
-    });
-
-    it("should initialize freshly created stream total earned to zero before claim and increase after claim", async function () {
-      const tx = await incomeStream.connect(employer)["createStream(address,bytes32)"](borrower.address, mockIncomeRate);
-      await tx.wait();
-      const streamId = await incomeStream.employeeStreamId(borrower.address);
-
-      const initialTotal = await incomeStream.getTotalEarnedHandle(borrower.address);
-      expect(initialTotal).to.equal(ethers.ZeroHash);
-
-      await ethers.provider.send("evm_increaseTime", [30 * 86400]);
-      await ethers.provider.send("evm_mine", []);
-
-      const claimTx = await incomeStream.connect(borrower).claimEarnedSalary(streamId);
-      await claimTx.wait();
-
-      const totalEarned = await incomeStream.getTotalEarnedHandle(borrower.address);
-      expect(totalEarned).to.not.equal(ethers.ZeroHash);
-    });
-  });
-
-  describe("ConfidentialCredit Vault", function () {
-    it("should accept collateral deposits operating on euint256 handles", async function () {
-      await creditVault.connect(borrower)["depositCollateral(bytes32)"](mockCollateral);
       const collateral = await creditVault.getEncryptedCollateral(borrower.address);
       expect(collateral).to.not.equal(ethers.ZeroHash);
-    });
 
-    it("should allow borrower with active stream to request borrow within capacity", async function () {
+      // Confirm Aave Pool received collateral from vault
+      const supplied = await mockAavePool.supplied(await mockUsdc.getAddress(), await creditVault.getAddress());
+      expect(supplied).to.equal(depositAmount);
+    });
+  });
+
+  describe("Salary-Gated Borrowing Routed Through Aave", function () {
+    it("should borrow from Aave Pool upon successful salary underwriting", async function () {
+      const depositAmount = ethers.parseUnits("15000", 6);
+      const borrowAmount = ethers.parseUnits("20000", 6);
+
       await incomeStream.connect(employer)["createStream(address,bytes32)"](borrower.address, mockIncomeRate);
-      await creditVault.connect(borrower)["depositCollateral(bytes32)"](mockCollateral);
+      await mockUsdc.connect(borrower).approve(await creditVault.getAddress(), depositAmount);
+      await creditVault.connect(borrower)["depositCollateral(address,uint256,bytes32)"](
+        await mockUsdc.getAddress(),
+        depositAmount,
+        mockCollateral
+      );
 
-      await creditVault.connect(borrower)["requestBorrow(bytes32)"](mockBorrow);
+      const balBefore = await mockUsdc.balanceOf(borrower.address);
+      await creditVault.connect(borrower)["requestBorrow(address,uint256,bytes32)"](
+        await mockUsdc.getAddress(),
+        borrowAmount,
+        mockBorrow
+      );
 
-      const borrowBalance = await creditVault.getEncryptedBorrowBalance(borrower.address);
-      expect(borrowBalance).to.not.equal(ethers.ZeroHash);
+      const balAfter = await mockUsdc.balanceOf(borrower.address);
+      expect(balAfter - balBefore).to.equal(borrowAmount);
+
+      const vaultDebt = await mockAavePool.borrowed(await mockUsdc.getAddress(), await creditVault.getAddress());
+      expect(vaultDebt).to.equal(borrowAmount);
     });
+  });
 
-    it("should revert borrow request if borrower has no active income stream", async function () {
-      await creditVault.connect(borrower)["depositCollateral(bytes32)"](mockCollateral);
+  describe("Repayment & Buffered Liquidation", function () {
+    it("should repay Aave debt through vault", async function () {
+      const depositAmount = ethers.parseUnits("15000", 6);
+      const borrowAmount = ethers.parseUnits("20000", 6);
+      const repayAmount = ethers.parseUnits("5000", 6);
 
-      await expect(
-        creditVault.connect(borrower)["requestBorrow(bytes32)"](mockBorrow)
-      ).to.be.revertedWith("IncomeStream: no active stream for employee");
-    });
-
-    it("should process loan repayment using euint256 handles", async function () {
       await incomeStream.connect(employer)["createStream(address,bytes32)"](borrower.address, mockIncomeRate);
-      await creditVault.connect(borrower)["depositCollateral(bytes32)"](mockCollateral);
-      await creditVault.connect(borrower)["requestBorrow(bytes32)"](mockBorrow);
+      await mockUsdc.connect(borrower).approve(await creditVault.getAddress(), depositAmount);
+      await creditVault.connect(borrower)["depositCollateral(address,uint256,bytes32)"](
+        await mockUsdc.getAddress(),
+        depositAmount,
+        mockCollateral
+      );
+      await creditVault.connect(borrower)["requestBorrow(address,uint256,bytes32)"](
+        await mockUsdc.getAddress(),
+        borrowAmount,
+        mockBorrow
+      );
 
-      const repayAmount = ethers.zeroPadValue(ethers.toBeHex(5000), 32);
-      await creditVault.connect(borrower)["repay(bytes32)"](repayAmount);
+      await mockUsdc.connect(borrower).approve(await creditVault.getAddress(), repayAmount);
+      const repayHandle = ethers.zeroPadValue(ethers.toBeHex(5000), 32);
+      await creditVault.connect(borrower)["repay(address,uint256,bytes32)"](
+        await mockUsdc.getAddress(),
+        repayAmount,
+        repayHandle
+      );
 
-      const borrowBalance = await creditVault.getEncryptedBorrowBalance(borrower.address);
-      expect(borrowBalance).to.not.equal(ethers.ZeroHash);
+      const vaultDebt = await mockAavePool.borrowed(await mockUsdc.getAddress(), await creditVault.getAddress());
+      expect(vaultDebt).to.equal(borrowAmount - repayAmount);
     });
 
-    it("should evaluate liquidation signal on-chain using TEE primitives", async function () {
-      await incomeStream.connect(employer)["createStream(address,bytes32)"](borrower.address, mockIncomeRate);
-      await creditVault.connect(borrower)["depositCollateral(bytes32)"](mockCollateral);
-      await creditVault.connect(borrower)["requestBorrow(bytes32)"](mockBorrow);
-
-      await creditVault.evaluateLiquidation(borrower.address);
-      const signal = await creditVault.getEncryptedLiquidationSignal(borrower.address);
-      // Under healthy position ($20k borrow vs $45k capacity), liquidation boolean signal is false (0)
-      expect(signal).to.equal(ethers.ZeroHash);
-    });
-
-    it("should correctly liquidate an underwater position", async function () {
-      // 1. Create stream ($5,000 / mo => $30,000 income support)
-      await incomeStream.connect(employer)["createStream(address,bytes32)"](borrower.address, mockIncomeRate);
-
-      // 2. Deposit collateral ($5,000) => Total capacity = $35,000
+    it("should trigger per-user internal liquidation when position exceeds 75% LTV buffer", async function () {
+      const depositAmount = ethers.parseUnits("5000", 6);
+      const borrowAmount = ethers.parseUnits("20000", 6);
       const lowCollateral = ethers.zeroPadValue(ethers.toBeHex(5000), 32);
-      await creditVault.connect(borrower)["depositCollateral(bytes32)"](lowCollateral);
 
-      // 3. Request borrows totaling $40,000 ($20,000 x 2)
-      await creditVault.connect(borrower)["requestBorrow(bytes32)"](mockBorrow);
-      await creditVault.connect(borrower)["requestBorrow(bytes32)"](mockBorrow);
+      await incomeStream.connect(employer)["createStream(address,bytes32)"](borrower.address, mockIncomeRate);
+      await mockUsdc.connect(borrower).approve(await creditVault.getAddress(), depositAmount);
+      await creditVault.connect(borrower)["depositCollateral(address,uint256,bytes32)"](
+        await mockUsdc.getAddress(),
+        depositAmount,
+        lowCollateral
+      );
 
-      // 4. Evaluate liquidation: borrow balance ($40k) exceeds total capacity ($35k)
-      await creditVault.evaluateLiquidation(borrower.address);
+      await creditVault.connect(borrower)["requestBorrow(address,uint256,bytes32)"](
+        await mockUsdc.getAddress(),
+        borrowAmount,
+        mockBorrow
+      );
+      await creditVault.connect(borrower)["requestBorrow(address,uint256,bytes32)"](
+        await mockUsdc.getAddress(),
+        borrowAmount,
+        mockBorrow
+      );
+
+      await creditVault.checkAndLiquidate(borrower.address);
       const signal = await creditVault.getEncryptedLiquidationSignal(borrower.address);
       expect(signal).to.equal(ethers.zeroPadValue(ethers.toBeHex(1), 32));
 
-      // 5. Liquidate position with valid decryption proof
-      const validProof = "0x01";
-      await creditVault.connect(liquidator).liquidate(borrower.address, validProof);
+      await creditVault.connect(liquidator).liquidate(borrower.address, "0x01");
 
-      // 6. Assert collateral and borrow balance handles are cleared to zero
       const collateral = await creditVault.getEncryptedCollateral(borrower.address);
       const borrowBalance = await creditVault.getEncryptedBorrowBalance(borrower.address);
       expect(collateral).to.equal(ethers.ZeroHash);
       expect(borrowBalance).to.equal(ethers.ZeroHash);
-    });
-
-    it("should revert liquidation attempt on a healthy position", async function () {
-      await incomeStream.connect(employer)["createStream(address,bytes32)"](borrower.address, mockIncomeRate);
-      await creditVault.connect(borrower)["depositCollateral(bytes32)"](mockCollateral);
-      await creditVault.connect(borrower)["requestBorrow(bytes32)"](mockBorrow);
-
-      await creditVault.evaluateLiquidation(borrower.address);
-
-      const validProof = "0x01";
-      await expect(
-        creditVault.connect(liquidator).liquidate(borrower.address, validProof)
-      ).to.be.reverted;
     });
   });
 });

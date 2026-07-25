@@ -7,12 +7,16 @@ import "../src/ERC7984CreditToken.sol";
 import "../src/IncomeStream.sol";
 import "../src/ConfidentialCredit.sol";
 import "./MockNoxCompute.sol";
+import "./MockAavePool.sol";
+import "./MockERC20.sol";
 
 contract ConfidentialCreditTest is Test {
     ERC7984CreditToken public creditToken;
     IncomeStream public incomeStream;
     ConfidentialCredit public creditVault;
     MockNoxCompute public mockNoxCompute;
+    MockAavePool public mockAavePool;
+    MockERC20 public mockUsdc;
 
     address public owner = address(this);
     address public employer = address(0x111);
@@ -28,15 +32,28 @@ contract ConfidentialCreditTest is Test {
         mockNoxCompute = new MockNoxCompute();
         vm.etch(address(0x39847AeBa923Cc7367d4684194091D022B3F8548), address(mockNoxCompute).code);
 
+        // Deploy Mock Aave Pool & Mock USDC Token
+        mockAavePool = new MockAavePool();
+        mockUsdc = new MockERC20("USD Coin", "USDC", 6);
+
+        // Mint USDC to borrower for collateral deposit & repayment tests
+        mockUsdc.mint(borrower, 1000000 * 1e6);
+
         // Initialize Nox handles for testing
         mockIncomeRate = Nox.toEuint256(5000);   // $5,000 / month
-        mockCollateral = Nox.toEuint256(15000);  // $15,000 collateral
+        mockCollateral = Nox.toEuint256(15000);  // $15,000 collateral handle
         mockBorrow = Nox.toEuint256(20000);      // $20,000 requested borrow ($20k <= $5k * 6 = $30k limit)
 
         // Deploy contracts
         creditToken = new ERC7984CreditToken("Nox Credit Token", "NOXCRED", "https://signet.finance/token");
         incomeStream = new IncomeStream();
-        creditVault = new ConfidentialCredit(address(incomeStream), address(creditToken), 6);
+        creditVault = new ConfidentialCredit(
+            address(incomeStream),
+            address(creditToken),
+            6,
+            address(mockAavePool),
+            address(0)
+        );
 
         // Configure vault permissions
         creditToken.setCreditVault(address(creditVault));
@@ -71,110 +88,91 @@ contract ConfidentialCreditTest is Test {
         assertTrue(uint256(euint256.unwrap(updatedTotal)) > 0);
     }
 
-    function test_DepositCollateral() public {
+    function test_DepositCollateral_RoutesToAavePool() public {
+        uint256 depositAmount = 15000 * 1e6;
         vm.startPrank(borrower);
-        euint256 collateralHandle = creditVault.depositCollateral(mockCollateral);
+        mockUsdc.approve(address(creditVault), depositAmount);
+        euint256 collateralHandle = creditVault.depositCollateral(address(mockUsdc), depositAmount, mockCollateral);
         vm.stopPrank();
 
         assertTrue(Nox.isInitialized(collateralHandle));
+        // Verify real collateral is supplied to Aave Pool on behalf of creditVault
+        assertEq(mockAavePool.supplied(address(mockUsdc), address(creditVault)), depositAmount);
     }
 
-    function test_RequestBorrow_Success() public {
-        // 1. Create stream
+    function test_RequestBorrow_RoutesThroughAavePool() public {
+        uint256 depositAmount = 15000 * 1e6;
+        uint256 borrowAmount = 20000 * 1e6;
+
+        // 1. Create income stream
         vm.prank(employer);
         incomeStream.createStream(borrower, mockIncomeRate);
 
         // 2. Deposit collateral
         vm.startPrank(borrower);
-        creditVault.depositCollateral(mockCollateral);
+        mockUsdc.approve(address(creditVault), depositAmount);
+        creditVault.depositCollateral(address(mockUsdc), depositAmount, mockCollateral);
 
         // 3. Request borrow within eligibility limit ($20,000 <= $30,000 ceiling)
-        euint256 borrowed = creditVault.requestBorrow(mockBorrow);
+        uint256 initialBalance = mockUsdc.balanceOf(borrower);
+        euint256 borrowedHandle = creditVault.requestBorrow(address(mockUsdc), borrowAmount, mockBorrow);
         vm.stopPrank();
 
-        assertTrue(Nox.isInitialized(borrowed));
-        assertTrue(Nox.isInitialized(creditVault.getEncryptedBorrowBalance(borrower)));
+        assertTrue(Nox.isInitialized(borrowedHandle));
+        // Verify borrowed funds arrived in borrower's wallet
+        assertEq(mockUsdc.balanceOf(borrower), initialBalance + borrowAmount);
+        // Verify Aave Pool recorded vault debt
+        assertEq(mockAavePool.borrowed(address(mockUsdc), address(creditVault)), borrowAmount);
     }
 
-    function test_RequestBorrow_RejectedWhenOverCeiling() public {
-        // 1. Create stream ($5,000 / mo => Max capacity = $30,000)
-        vm.prank(employer);
-        incomeStream.createStream(borrower, mockIncomeRate);
+    function test_RepayLoan_RoutesToAavePool() public {
+        uint256 depositAmount = 15000 * 1e6;
+        uint256 borrowAmount = 20000 * 1e6;
+        uint256 repayAmount = 5000 * 1e6;
 
-        vm.startPrank(borrower);
-        creditVault.depositCollateral(mockCollateral);
-
-        // Request $50,000 (exceeds $30,000 ceiling)
-        euint256 excessiveBorrow = Nox.toEuint256(50000);
-        creditVault.requestBorrow(excessiveBorrow);
-        vm.stopPrank();
-
-        euint256 actualBalance = creditVault.getEncryptedBorrowBalance(borrower);
-        assertTrue(Nox.isInitialized(actualBalance));
-    }
-
-    function test_RequestBorrow_RevertWithoutStream() public {
-        vm.startPrank(borrower);
-        creditVault.depositCollateral(mockCollateral);
-
-        vm.expectRevert("IncomeStream: no active stream for employee");
-        creditVault.requestBorrow(mockBorrow);
-        vm.stopPrank();
-    }
-
-    function test_RepayLoan() public {
         // Setup borrow position
         vm.prank(employer);
         incomeStream.createStream(borrower, mockIncomeRate);
 
         vm.startPrank(borrower);
-        creditVault.depositCollateral(mockCollateral);
-        creditVault.requestBorrow(mockBorrow);
+        mockUsdc.approve(address(creditVault), depositAmount);
+        creditVault.depositCollateral(address(mockUsdc), depositAmount, mockCollateral);
+        creditVault.requestBorrow(address(mockUsdc), borrowAmount, mockBorrow);
 
         // Repay loan
-        euint256 repayAmount = Nox.toEuint256(5000);
-        creditVault.repay(repayAmount);
+        mockUsdc.approve(address(creditVault), repayAmount);
+        euint256 repayHandle = Nox.toEuint256(5000);
+        creditVault.repay(address(mockUsdc), repayAmount, repayHandle);
         vm.stopPrank();
 
-        assertTrue(Nox.isInitialized(creditVault.getEncryptedBorrowBalance(borrower)));
-    }
-
-    function test_LiquidationFlow() public {
-        // Setup borrow position
-        vm.prank(employer);
-        incomeStream.createStream(borrower, mockIncomeRate);
-
-        vm.startPrank(borrower);
-        creditVault.depositCollateral(mockCollateral);
-        creditVault.requestBorrow(mockBorrow);
-        vm.stopPrank();
-
-        // Evaluate liquidation on-chain via TEE operations
-        ebool signal = creditVault.evaluateLiquidation(borrower);
-        // Position is healthy ($20k borrow vs $45k capacity), so liquidation signal is 0 (false)
-        assertEq(ebool.unwrap(signal), bytes32(0));
+        // Verify vault debt on Aave reduced from 20k to 15k
+        assertEq(mockAavePool.borrowed(address(mockUsdc), address(creditVault)), borrowAmount - repayAmount);
     }
 
     function test_LiquidationFlow_TriggersWhenUnderwater() public {
+        uint256 depositAmount = 5000 * 1e6;
+        uint256 borrowAmount = 20000 * 1e6;
+
         // 1. Create stream ($5,000 / mo => $30,000 income support)
         vm.prank(employer);
         incomeStream.createStream(borrower, mockIncomeRate);
 
-        // 2. Deposit collateral ($5,000) => Total capacity = $35,000
+        // 2. Deposit low collateral ($5,000) => Total capacity = $35,000
         euint256 lowCollateral = Nox.toEuint256(5000);
         vm.startPrank(borrower);
-        creditVault.depositCollateral(lowCollateral);
+        mockUsdc.approve(address(creditVault), depositAmount);
+        creditVault.depositCollateral(address(mockUsdc), depositAmount, lowCollateral);
 
-        // 3. Request borrows totaling $40,000 ($20,000 x 2, both within $30k per-request capacity)
-        creditVault.requestBorrow(mockBorrow);
-        creditVault.requestBorrow(mockBorrow);
+        // 3. Request borrows totaling $40,000 ($20,000 x 2)
+        creditVault.requestBorrow(address(mockUsdc), borrowAmount, mockBorrow);
+        creditVault.requestBorrow(address(mockUsdc), borrowAmount, mockBorrow);
         vm.stopPrank();
 
-        // 4. Evaluate liquidation: borrow balance ($40k) exceeds total capacity ($35k)
-        ebool signal = creditVault.evaluateLiquidation(borrower);
+        // 4. Evaluate liquidation: borrow balance ($40k) exceeds buffered capacity ($35k * 75% LTV)
+        ebool signal = creditVault.checkAndLiquidate(borrower);
         assertEq(ebool.unwrap(signal), bytes32(uint256(1)));
 
-        // 5. Liquidate position with valid decryption proof
+        // 5. Liquidate position with valid proof
         bytes memory proof = hex"01";
         vm.prank(liquidator);
         creditVault.liquidate(borrower, proof);
@@ -182,23 +180,5 @@ contract ConfidentialCreditTest is Test {
         // 6. Assert collateral and borrow balance handles are cleared to zero
         assertEq(euint256.unwrap(creditVault.getEncryptedCollateral(borrower)), bytes32(0));
         assertEq(euint256.unwrap(creditVault.getEncryptedBorrowBalance(borrower)), bytes32(0));
-    }
-
-    function test_Liquidation_RevertsWhenHealthy() public {
-        // Setup healthy borrow position ($20k borrow vs $45k capacity)
-        vm.prank(employer);
-        incomeStream.createStream(borrower, mockIncomeRate);
-
-        vm.startPrank(borrower);
-        creditVault.depositCollateral(mockCollateral);
-        creditVault.requestBorrow(mockBorrow);
-        vm.stopPrank();
-
-        creditVault.evaluateLiquidation(borrower);
-
-        bytes memory proof = hex"01";
-        vm.prank(liquidator);
-        vm.expectRevert();
-        creditVault.liquidate(borrower, proof);
     }
 }

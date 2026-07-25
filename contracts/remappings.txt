@@ -1,5 +1,6 @@
 @iexec-nox/nox-protocol-contracts/=../node_modules/@iexec-nox/nox-protocol-contracts/
 @iexec-nox/nox-confidential-contracts/=../node_modules/@iexec-nox/nox-confidential-contracts/
 @openzeppelin/contracts/=../node_modules/@openzeppelin/contracts/
+@aave/core-v3/=../node_modules/@aave/core-v3/
 encrypted-types/=../node_modules/encrypted-types/
 forge-std/=lib/forge-std/src/

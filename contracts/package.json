@@ -12,6 +12,7 @@
     "hardhat": "^2.22.0"
   },
   "dependencies": {
+    "@aave/core-v3": "^1.19.3",
     "@iexec-nox/nox-confidential-contracts": "^0.1.0"
   }
 }

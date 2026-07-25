@@ -1,108 +1,93 @@
-# Nox Private Credit — System Architecture & Design Specification
+# SigNet — System Architecture & Design Specification
 
 ## 1. Overview & Core Mission
-**Nox Private Credit** is an institutional-grade, privacy-preserving lending protocol deployed on Arbitrum Sepolia. It enables employees to underwrite confidential Aave-style loans against continuous Sablier/Superfluid-style salary streams. 
+**SigNet (Nox Private Credit)** is an institutional-grade, privacy-preserving credit layer built on Arbitrum Sepolia. It integrates directly with **Aave V3** liquidity pools while placing a **Nox TEE (Trusted Execution Environment)** private underwriting and credit-risk layer on top.
 
-Neither the user's monthly salary rate nor their current loan position size is ever exposed on-chain. All financial arithmetic and risk evaluations are computed confidentially via **Nox TEE (Trusted Execution Environment)** confidential compute handles and ACL-scoped boolean signals.
+Neither the user's monthly salary rate nor their private loan entitlement position is exposed on-chain. All salary underwriting evaluations and internal credit health checks are computed confidentially via **Nox TEE** handles and ACL-scoped disclosures.
 
 ---
 
-## 2. Two-Contract System Architecture
+## 2. System Architecture & Aave V3 Integration
 
 ```mermaid
 flowchart TD
     subgraph Frontend ["Frontend (Next.js + Wagmi + Nox SDK)"]
         User["Borrower Wallet"]
-        SDK["Nox JS SDK\n(Client-side Encrypt/Decrypt)"]
+        SDK["Nox JS SDK\n(Salted Handle Commitment)"]
     end
 
-    subgraph OnChain ["Arbitrum Sepolia Contracts"]
-        IS["IncomeStream.sol\n(Salary Stream Contract)"]
-        CC["ConfidentialCredit.sol\n(Confidential Lending Engine)"]
+    subgraph SigNet ["SigNet On-Chain Contracts (Arbitrum Sepolia)"]
+        IS["IncomeStream.sol\n(Confidential Payroll Stream)"]
+        CC["ConfidentialCredit.sol\n(Vault + ReentrancyGuard)"]
+        TOKEN["ERC7984CreditToken.sol\n(Encrypted Entitlement Claim)"]
+    end
+
+    subgraph AaveV3 ["Aave V3 Protocol (Arbitrum Sepolia)"]
+        POOL["Aave Pool Proxy\n(0xBfC91D59...)"]
+        ORACLE["Aave Price Oracle\n(0xEf95A6B9...)"]
     end
 
     subgraph NoxTEE ["Nox TEE Coprocessor"]
-        TEE["TEE Confidential Engine\n(Enclave Arithmetic)"]
+        TEE["TEE Execution Enclave\n(Nox Primitives: Nox.ge, Nox.gt)"]
     end
 
-    User -->|1. Submit salary & stream parameters| SDK
-    SDK -->|2. Encrypted stream handle eSalary| IS
-    IS -->|3. Transfer encrypted income handle| CC
-    User -->|4. Encrypted collateral eCollateral & borrow eBorrow| SDK
-    SDK -->|5. Encrypted handles eCollateral & eBorrow| CC
-    CC <-->|6. Confidential math: income rate * multiplier >= eBorrow| TEE
-    TEE -->|7. Return ACL-scoped ebool isEligible / liquidatable| CC
-    CC -->|8. Disclosure: Borrower gets view / Liquidator gets boolean| User
+    User -->|1. Submit salary & deposit collateral| SDK
+    SDK -->|2. Create stream & deposit| CC
+    CC -->|3. Real Aave Pool.supply()| POOL
+    CC -->|4. Mint encrypted claim token| TOKEN
+    CC <-->|5. Private underwriting check: maxBorrowUSD >= requestedUSD| TEE
+    POOL <-->|6. Fetch 8-decimal asset pricing| ORACLE
+    CC -->|7. Real Aave Pool.borrow()| POOL
+    POOL -->|8. Transfer borrowed asset| User
 ```
-
-### 2.1 `IncomeStream.sol`
-- **Purpose:** Simulates/integrates continuous salary streaming (Sablier/Superfluid pattern) while maintaining confidential balance handles.
-- **State & Handles:**
-  - `mapping(address => euint64) private _encryptedMonthlyRate`: Encrypted monthly salary rate.
-  - `mapping(address => euint64) private _encryptedTotalEarned`: Encrypted running balance of salary earned to date.
-- **Key Functions:**
-  - `createStream(address employee, inEuint64 encryptedRateHandle)`: Initiates a confidential salary stream.
-  - `getIncomeHandle(address employee)`: Returns the encrypted `euint64` handle representing income rate for credit underwriting. Emits `EncryptedEarnedHandleEmitted`.
-
-### 2.2 `ConfidentialCredit.sol`
-- **Purpose:** Manages collateral deposits, confidential eligibility checks, borrow positions, repayments, and liquidation signals.
-- **State & Handles:**
-  - `mapping(address => euint64) private _encryptedCollateral`: Encrypted user collateral balance.
-  - `mapping(address => euint64) private _encryptedBorrowBalance`: Encrypted active borrow principal.
-  - `mapping(address => ebool) private _encryptedLiquidationStatus`: TEE-computed liquidation boolean.
-- **Key Functions:**
-  - `depositCollateral(inEuint64 encryptedAmount)`: Accepts encrypted collateral.
-  - `requestBorrow(inEuint64 encryptedBorrowAmount, address streamContract)`: Queries `IncomeStream` handle, executes confidential underwriting evaluation in Nox TEE, updates borrow balance if eligible.
-  - `repay(inEuint64 encryptedRepayAmount)`: Reduces encrypted borrow principal.
-  - `checkLiquidation(address borrower)`: TEE evaluates health factor against liquidation threshold and discloses boolean `liquidatable` to authorized liquidators.
 
 ---
 
-## 3. Underwriting & Liquidation Mathematics
+## 3. Honest Public vs. Private Boundary
 
-### 3.1 Confidential Underwriting Rule
-The protocol enforces a forward-salary multiplier rule:
-$$\text{Max Borrow Capacity} = \text{Monthly Income Rate} \times \text{Credit Multiplier (e.g., 6)}$$
+| Feature / Metric | Public On-Chain Layer (Aave V3) | Private TEE Layer (SigNet Nox Engine) |
+| :--- | :--- | :--- |
+| **Collateral Custody** | Real ERC20 supply to Aave Pool (`0xBfC91D59...`) | User's encrypted proportional claim handle (`_encryptedCollateral`) |
+| **Borrow Execution** | Real Aave Pool `borrow()` (Variable Rate Mode) | Nox TEE salary underwriting check (`maxBorrowUSD >= requestedAmountUSD`) |
+| **Token Entitlement** | Public aToken balance held by SigNet Vault | Encrypted `ERC7984CreditToken` mint representing user claim |
+| **Liquidation Engine** | Aave Pool-wide Liquidation (8000 BPS / 80% LTV) | SigNet Per-User Buffered Liquidation (7500 BPS / 75% LTV; 1.067 HF buffer) |
 
-In Nox Confidential Compute:
+---
+
+## 4. Underwriting & Buffered Liquidation Mathematics
+
+### 4.1 Confidential Salary Underwriting
+$$\text{Max Borrow Capacity USD} = \text{Monthly Salary USD} \times \text{Credit Multiplier (e.g., 6)}$$
+
+In Nox TEE:
 ```solidity
-// TEE Encrypted Arithmetic
-euint64 maxBorrowCapacity = Nox.mul(incomeRateHandle, CREDIT_MULTIPLIER);
-ebool qualifies = Nox.gte(maxBorrowCapacity, requestedBorrowHandle);
+euint256 maxBorrowUSD = Nox.mul(incomeRateHandle, Nox.toEuint256(creditMultiplier));
+ebool isEligible = Nox.ge(maxBorrowUSD, requestedBorrowUSD);
 ```
-The result `qualifies` is stored as an `ebool`. Only the boolean result is revealed to the protocol decision logic; the borrower's raw salary and requested loan size remain completely sealed.
 
-### 3.2 Confidential Liquidation Rule
-Liquidation status is evaluated in TEE as:
-$$\text{Health Factor} = \frac{\text{Collateral Value} + (\text{Monthly Income Rate} \times \text{Safety Factor})}{\text{Active Loan Balance}}$$
-
-$$\text{Liquidatable Flag} = (\text{Health Factor} < \text{Liquidation Line})$$
-
-In Nox TEE execution, this yields a boolean signal `liquidatable: true/false`. 
-- **Public / Liquidator view:** Liquidators receive **only** the `bool` signal (`true`/`false`).
-- **Position privacy:** Liquidators trigger `liquidate(borrower)` based strictly on `true`, without ever learning whether the loan was $5,000 or $5,000,000.
+### 4.2 Buffered Per-User Liquidation (`SIGNET_LIQUIDATION_THRESHOLD_BPS`)
+* **Aave V3 Threshold:** 8000 BPS (80.00% LTV; HF = 1.000).
+* **SigNet Trigger Point:** 7500 BPS (75.00% LTV; HF = 1.067 safety margin relative to Aave).
+* **Derivation & Safety Margin:**
+  SigNet's internal permissionless `checkAndLiquidate(address user)` fires at 75% LTV, liquidating individual underwater users 500 BPS ahead of Aave's 80% pool-wide threshold. This guarantees that individual defaults are resolved internally before Aave's aggregate pool liquidation can ever be triggered.
 
 ---
 
-## 4. Access Control List (ACL) Matrix
+## 5. Security & Reentrancy Protections
 
-| Entity / Role | Monthly Income (`eSalary`) | Collateral (`eCollateral`) | Loan Position (`eBorrow`) | Eligibility Result | Liquidation Signal |
-| --- | --- | --- | --- | --- | --- |
-| **Borrower** | Full Decrypt (`decrypt`) | Full Decrypt (`decrypt`) | Full Decrypt (`decrypt`) | Full View | Full View |
-| **Protocol Contract** | Encrypted Handle | Encrypted Handle | Encrypted Handle | `ebool` Handle | `ebool` Handle |
-| **Liquidator / Public** | ❌ No Access | ❌ No Access | ❌ No Access | ❌ No Access | Plaintext `bool` (via ACL reveal) |
-| **Auditor Role** *(Optional)* | Granted View (via ACL) | Granted View (via ACL) | Granted View (via ACL) | Full View | Full View |
+`ConfidentialCredit.sol` inherits OpenZeppelin's `ReentrancyGuard`. The `nonReentrant` modifier is strictly applied across all state-modifying and fund-moving entry points:
+- `depositCollateral(...)`
+- `requestBorrow(...)`
+- `repay(...)`
+- `checkAndLiquidate(address user)`
 
 ---
 
-## 5. Scope Boundaries: Mocked vs. Real Components
+## 6. Official Verified Contract Addresses (Arbitrum Sepolia)
 
-To ensure a 100% working, bulletproof demo on **Arbitrum Sepolia**:
-
-| Component | Scope Decision | Rationale |
-| --- | --- | --- |
-| **Nox Confidential Engine (`@iexec-nox`)** | **100% REAL** | Core hackathon judging criterion. Full encrypt → handle → TEE compute → ACL decrypt round-trip. |
-| **Arbitrum Sepolia Deployment** | **100% REAL** | Verified live testnet deployment. |
-| **Nox JS SDK Integration** | **100% REAL** | Client-side input encryption & wax-seal disclosure UI. |
-| **Sablier / Superfluid Payroll** | **Mocked Interface** | Local contract implementation (`IncomeStream.sol`) simulating streaming balance updates. |
-| **Aave Liquidity Pool Vault** | **Mocked Interface** | Integrated pool logic within `ConfidentialCredit.sol` for token deposit/borrow actions. |
+* **Aave V3 Pool (Proxy):** `0xBfC91D59fdAA134A4ED45f7B584cAf96D7792Eff`
+* **Aave Pool Addresses Provider:** `0xB25a5D144626a0D488e52AE717A051a2E9997076`
+* **Aave Pool Data Provider:** `0x12373B5085e3b42D42C1D4ABF3B3Cf4Df0E0Fa01`
+* **Aave Price Oracle:** `0xEf95A6B9e88Bd509Fd67BA741cf2b263DaC65c00`
+* **USDC Testnet Token:** `0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d`
+* **WETH Wrapped Ether:** `0x1dF462e2712496373A347f8ad10802a5E95f053D`

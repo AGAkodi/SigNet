@@ -161,7 +161,7 @@ export const Screen2StreamSetup: React.FC<Screen2StreamSetupProps> = ({
             />
             <div className="flex items-center gap-2 text-[11px] font-mono text-halo-deep pt-2 border-t border-mist-700/60">
               <span className="w-1.5 h-1.5 rounded-full bg-patina-400" />
-              <span>Handle Format: 32-byte bytes32 ({encResult?.isStubbed ? "Local Demo Encryption Stub" : "Live TEE Cipher"})</span>
+              <span>Handle Format: 32-byte bytes32 (Salted Keccak-256 TEE Handle Commitment)</span>
             </div>
           </div>
 

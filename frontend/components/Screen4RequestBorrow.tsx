@@ -96,28 +96,32 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
   const currentHandle = encResult?.encryptedHandle || "0x0000000000000000000000000000000000000000000000000000000000000000";
 
   return (
-    <div className="max-w-xl mx-auto py-8 px-4">
-      <div className="bg-mist-900 border border-mist-700 rounded-2xl p-6 sm:p-8 shadow-panel">
-        <div className="flex items-center justify-between border-b border-mist-700 pb-4 mb-6">
+    <div className="max-w-2xl mx-auto py-6 px-4">
+      <div className="card">
+        {/* Header with Consistent Eyebrow Tag */}
+        <div className="flex items-start justify-between border-b border-mist-700 pb-5 mb-6">
           <div>
-            <span className="text-xs font-mono text-patina-400">STEP 03 OF 04</span>
-            <h2 className="font-display text-2xl font-bold text-halo-soft">
-              Request Borrow Position
+            <div className="eyebrow-tag">
+              <span className="w-1.5 h-1.5 rounded-full bg-patina-400" />
+              <span>[ 03. CONFIDENTIAL BORROW ]</span>
+            </div>
+            <h2 className="font-display text-3xl sm:text-4xl font-bold tracking-tight text-halo-soft">
+              Confidential Borrow Request
             </h2>
           </div>
-          <span className="px-2.5 py-1 bg-mist-800 border border-mist-700 text-patina-300 text-xs font-mono rounded">
-            ConfidentialCredit.sol (Sepolia)
+          <span className="px-3 py-1 bg-mist-800 border border-mist-700 text-patina-300 text-xs font-mono rounded-lg shadow-panel shrink-0 mt-1">
+            ConfidentialCredit.sol
           </span>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Amount Slider */}
-          <div>
-            <div className="flex justify-between items-center mb-2">
-              <label className="text-xs font-mono text-halo-dim uppercase">
+          <div className="space-y-3">
+            <div className="flex justify-between items-center">
+              <label className="text-xs font-mono text-halo-dim uppercase tracking-wider font-medium">
                 Requested Loan Amount ($ USD)
               </label>
-              <span className="font-display text-xl font-bold text-patina-300">
+              <span className="font-display text-2xl font-bold text-patina-300">
                 ${requestedAmount.toLocaleString()}.00
               </span>
             </div>
@@ -128,23 +132,23 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
               step="500"
               value={requestedAmount}
               onChange={(e) => setRequestedAmount(Number(e.target.value))}
-              className="w-full h-2 bg-mist-950 rounded-lg appearance-none cursor-pointer accent-patina-400 border border-mist-700"
+              className="w-full h-2.5 bg-mist-950 rounded-lg appearance-none cursor-pointer accent-patina-400 border border-mist-700"
             />
-            <div className="flex justify-between text-[11px] font-mono text-halo-deep mt-1">
-              <span>$1,000</span>
+            <div className="flex justify-between text-[11px] font-mono text-halo-deep pt-1">
+              <span>Min: $1,000</span>
               <span>Max Capacity: ${maxLimit.toLocaleString()} (6x Salary)</span>
             </div>
           </div>
 
           {/* Sealed Borrow Handle Ticker Preview */}
-          <div className="p-4 bg-mist-950 border border-mist-700 rounded-xl space-y-2">
+          <div className="p-5 bg-mist-950/80 border border-mist-700 rounded-xl space-y-3 shadow-panel">
             <WaxSealValue
               label="Encrypted Borrow Amount Handle"
               encryptedHandle={currentHandle}
               actualValue={`$${requestedAmount.toLocaleString()}.00 USD`}
               userAddress={userAddress}
             />
-            <div className="text-[11px] text-halo-dim font-sans pt-2 border-t border-mist-700/50">
+            <div className="text-[11px] text-halo-dim font-sans pt-2 border-t border-mist-700/60 leading-relaxed">
               <span className="text-patina-300 font-mono font-semibold block mb-0.5">TEE On-Chain Evaluation Notice:</span>
               Borrow eligibility is evaluated confidentially on-chain by <code className="text-patina-300 font-mono">ConfidentialCredit.sol</code> using Nox TEE primitives (<code className="text-patina-300 font-mono">Nox.ge</code> & <code className="text-patina-300 font-mono">Nox.select</code>). Token minting is gated directly inside the contract.
             </div>
@@ -152,15 +156,15 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
 
           {/* Transaction Status & Loading Indicators */}
           {isWriting && (
-            <div className="p-3 bg-patina-500/10 border border-patina-400/40 rounded-lg text-xs font-mono text-patina-300 flex items-center gap-2">
+            <div className="p-4 bg-patina-500/10 border border-patina-400/40 rounded-xl text-xs font-mono text-patina-300 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-patina-400 animate-ping" />
               Please confirm the borrow request signature in your MetaMask wallet...
             </div>
           )}
 
           {isConfirming && hash && (
-            <div className="p-3.5 bg-mist-950 border border-patina-400/60 rounded-lg text-xs font-mono text-halo-soft space-y-1">
-              <div className="flex items-center gap-2 text-patina-300">
+            <div className="p-4 bg-mist-950 border border-patina-400/60 rounded-xl text-xs font-mono text-halo-soft space-y-1.5">
+              <div className="flex items-center gap-2 text-patina-300 font-semibold">
                 <span className="w-2 h-2 rounded-full bg-patina-400 animate-pulse" />
                 Borrow request submitted! Mining block on Arbitrum Sepolia...
               </div>
@@ -176,7 +180,7 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
           )}
 
           {(writeError || receiptError) && (
-            <div className="p-3.5 bg-danger-soft border border-danger-border rounded-lg text-xs font-mono text-danger space-y-1">
+            <div className="p-4 bg-danger-soft border border-danger-border rounded-xl text-xs font-mono text-danger space-y-1">
               <div className="font-semibold">⚠️ Borrow Request Error</div>
               <p className="text-[11px] opacity-90 break-words">
                 {writeError?.message || receiptError?.message || "Contract call failed."}
@@ -187,11 +191,7 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
           <button
             type="submit"
             disabled={isBusy}
-            className={`w-full py-3 font-semibold text-xs font-mono rounded-lg transition-colors shadow-panel ${
-              isBusy
-                ? "bg-mist-800 text-halo-deep cursor-wait border border-mist-700"
-                : "bg-patina-400 hover:bg-patina-500 text-mist-950 focus:outline-none focus:ring-1 focus:ring-patina-300"
-            }`}
+            className={`w-full ${isBusy ? "btn-outline opacity-60" : "btn-primary"}`}
           >
             {isWriting
               ? "Confirming Signature in Wallet..."

@@ -126,28 +126,50 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
   const isBusy = isWriting || isConfirming;
 
   return (
-    <div className="max-w-2xl mx-auto py-8 px-4 space-y-6">
-      <div className="bg-mist-900 border border-mist-700 rounded-2xl p-6 sm:p-8 shadow-panel">
-        <div className="flex items-center justify-between border-b border-mist-700 pb-4 mb-6">
+    <div className="max-w-2xl mx-auto py-6 px-4 space-y-6">
+      <div className="card">
+        {/* Header with Consistent Eyebrow Tag */}
+        <div className="flex items-start justify-between border-b border-mist-700 pb-5 mb-6">
           <div>
-            <span className="text-xs font-mono text-patina-400">AUDIT & COMPLIANCE</span>
-            <h2 className="font-display text-2xl font-bold text-halo-soft">
-              Selective Disclosure Panel
+            <div className="eyebrow-tag">
+              <span className="w-1.5 h-1.5 rounded-full bg-patina-400" />
+              <span>[ 05. AUDIT VIEW ]</span>
+            </div>
+            <h2 className="font-display text-3xl sm:text-4xl font-bold tracking-tight text-halo-soft">
+              Selective Disclosure & ACL
             </h2>
           </div>
-          <span className="px-2.5 py-1 bg-mist-800 border border-mist-700 text-patina-300 text-xs font-mono rounded">
-            Nox ACL Management
+          <span className="px-3 py-1 bg-mist-800 border border-mist-700 text-patina-300 text-xs font-mono rounded-lg shadow-panel shrink-0 mt-1">
+            Nox ACL
           </span>
         </div>
 
-        <p className="text-xs text-halo-dim mb-6 font-sans">
+        <p className="text-xs sm:text-sm text-halo-dim mb-6 font-sans leading-relaxed">
           Grant specific third parties (e.g. institutional auditors or landlords) ACL-scoped view permissions to decrypt specific sealed handles on-chain. You retain full control to revoke access at any time via <code className="text-patina-300 font-mono">disallowTransient</code>.
         </p>
 
+        {/* House Line-Art SVG Diagram for TEE Access Control */}
+        <div className="w-full h-36 bg-mist-950/80 rounded-xl border border-mist-700/80 flex items-center justify-center p-4 mb-6 shadow-inner">
+          <svg viewBox="0 0 360 100" className="w-full h-full max-w-[320px]" fill="none">
+            <rect x="20" y="20" width="80" height="60" rx="8" fill="#16150F" stroke="#3B382D" strokeWidth="1.5" />
+            <text x="60" y="54" textAnchor="middle" className="font-mono text-[10px] fill-halo-soft font-semibold">OWNER</text>
+
+            <path d="M 100 50 H 150" stroke="#BFA24C" strokeWidth="2" strokeDasharray="4 4" />
+
+            <rect x="150" y="20" width="80" height="60" rx="8" fill="#1C1A14" stroke="#BFA24C" strokeWidth="1.5" />
+            <text x="190" y="54" textAnchor="middle" className="font-mono text-[10px] fill-patina-300 font-bold">NOX ACL</text>
+
+            <path d="M 230 50 H 280" stroke="#BFA24C" strokeWidth="2" strokeDasharray="4 4" />
+
+            <rect x="280" y="20" width="60" height="60" rx="8" fill="#16150F" stroke="#3B382D" strokeWidth="1.5" />
+            <text x="310" y="54" textAnchor="middle" className="font-mono text-[10px] fill-halo-dim font-medium">AUDITOR</text>
+          </svg>
+        </div>
+
         {/* Grant Access Form */}
-        <form onSubmit={handleGrantAccess} className="space-y-4 mb-8">
+        <form onSubmit={handleGrantAccess} className="space-y-5 mb-8">
           <div>
-            <label className="block text-xs font-mono text-halo-dim mb-1.5 uppercase">
+            <label className="block text-xs font-mono text-halo-dim mb-2 uppercase tracking-wider font-medium">
               Auditor / Third-Party Wallet Address
             </label>
             <input
@@ -155,30 +177,30 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
               value={auditorAddress}
               onChange={(e) => setAuditorAddress(e.target.value)}
               required
-              className="w-full bg-mist-950 border border-mist-700 focus:border-patina-400 text-halo-soft font-mono text-sm px-3.5 py-2.5 rounded-lg focus:outline-none transition-colors"
+              className="input-field"
             />
           </div>
 
-          <div className="p-3.5 bg-mist-950 border border-mist-700 rounded-lg text-xs text-halo-dim font-sans space-y-1">
+          <div className="p-4 bg-mist-950/80 border border-mist-700/80 rounded-xl text-xs text-halo-dim font-sans space-y-1.5 shadow-panel">
             <div>
               You're giving <code className="text-patina-300 font-mono">{auditorAddress.slice(0, 10)}...</code> permission to view your <span className="text-halo-soft font-semibold">Monthly Salary Income Handle</span>.
             </div>
-            <div className="text-[11px] text-halo-deep font-mono">
-              Note: Access permissions are granted on-chain via <code className="text-patina-300">NoxCompute.allow</code> until explicitly revoked. (Time-boxed auto-expiry is not natively supported by the Nox compute contract).
+            <div className="text-[11px] text-halo-deep font-mono leading-relaxed">
+              Note: Access permissions are granted on-chain via <code className="text-patina-300">NoxCompute.allow</code> until explicitly revoked via <code className="text-patina-300">disallowTransient</code>.
             </div>
           </div>
 
           {/* Transaction Status Alerts */}
           {isWriting && (
-            <div className="p-3 bg-patina-500/10 border border-patina-400/40 rounded-lg text-xs font-mono text-patina-300 flex items-center gap-2">
+            <div className="p-4 bg-patina-500/10 border border-patina-400/40 rounded-xl text-xs font-mono text-patina-300 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-patina-400 animate-ping" />
               Please confirm the {activeAction === "GRANT" ? "ACL Grant" : "ACL Revoke"} signature in your wallet...
             </div>
           )}
 
           {isConfirming && hash && (
-            <div className="p-3.5 bg-mist-950 border border-patina-400/60 rounded-lg text-xs font-mono text-halo-soft space-y-1">
-              <div className="flex items-center gap-2 text-patina-300">
+            <div className="p-4 bg-mist-950 border border-patina-400/60 rounded-xl text-xs font-mono text-halo-soft space-y-1.5">
+              <div className="flex items-center gap-2 text-patina-300 font-semibold">
                 <span className="w-2 h-2 rounded-full bg-patina-400 animate-pulse" />
                 {activeAction === "GRANT" ? "ACL Grant" : "ACL Revoke"} transaction submitted! Mining block on Sepolia...
               </div>
@@ -194,7 +216,7 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
           )}
 
           {(writeError || receiptError) && (
-            <div className="p-3.5 bg-danger-soft border border-danger-border rounded-lg text-xs font-mono text-danger space-y-1">
+            <div className="p-4 bg-danger-soft border border-danger-border rounded-xl text-xs font-mono text-danger space-y-1">
               <div className="font-semibold">⚠️ ACL Transaction Error</div>
               <p className="text-[11px] opacity-90 break-words">
                 {writeError?.message || receiptError?.message || "ACL contract call failed."}
@@ -205,11 +227,7 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
           <button
             type="submit"
             disabled={isBusy}
-            className={`w-full py-3 font-semibold text-xs font-mono rounded-lg transition-colors shadow-panel ${
-              isBusy
-                ? "bg-mist-800 text-halo-deep cursor-wait border border-mist-700"
-                : "bg-patina-400 hover:bg-patina-500 text-mist-950 focus:outline-none focus:ring-1 focus:ring-patina-300"
-            }`}
+            className={`w-full ${isBusy ? "btn-outline opacity-60" : "btn-primary"}`}
           >
             {isWriting
               ? "Confirming Signature in Wallet..."
@@ -220,13 +238,13 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
         </form>
 
         {/* Active Access List */}
-        <div>
-          <h3 className="font-display text-lg font-semibold text-halo-soft mb-4">
+        <div className="pt-2">
+          <h3 className="font-display text-xl font-bold text-halo-soft mb-4">
             Active Selective Disclosures
           </h3>
 
           {grants.length === 0 ? (
-            <div className="p-4 bg-mist-950 border border-mist-700 rounded-lg text-center text-xs text-halo-deep font-mono">
+            <div className="p-5 bg-mist-950/80 border border-mist-700/80 rounded-xl text-center text-xs text-halo-deep font-mono shadow-inner">
               No active third-party disclosures granted in this session.
             </div>
           ) : (
@@ -234,7 +252,7 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
               {grants.map((grant) => (
                 <div
                   key={grant.id}
-                  className="p-4 bg-mist-950 border border-mist-700 rounded-xl flex items-center justify-between shadow-panel"
+                  className="p-4 bg-mist-950/90 border border-mist-700 rounded-xl flex items-center justify-between shadow-panel"
                 >
                   <div>
                     <span className="text-xs font-mono text-halo-soft block font-semibold">
@@ -247,7 +265,7 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
                   <button
                     onClick={() => handleRevokeAccess(grant)}
                     disabled={isBusy}
-                    className="px-3 py-1.5 bg-danger-soft hover:bg-danger border border-danger-border text-danger hover:text-white font-mono text-xs rounded transition-colors disabled:opacity-50"
+                    className="btn-danger !px-3.5 !py-1.5"
                   >
                     Revoke Access
                   </button>

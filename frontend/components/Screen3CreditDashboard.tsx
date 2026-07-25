@@ -22,22 +22,41 @@ export const Screen3CreditDashboard: React.FC<Screen3CreditDashboardProps> = ({
 }) => {
   if (!streamData) {
     return (
-      <div className="max-w-xl mx-auto py-12 px-4 text-center">
-        <div className="bg-mist-900 border border-mist-700 rounded-2xl p-8 shadow-panel">
-          <div className="w-12 h-12 rounded-full bg-mist-800 border border-mist-700 text-patina-300 flex items-center justify-center mx-auto mb-4 font-display text-xl">
-            🏛️
+      <div className="max-w-xl mx-auto py-10 px-4">
+        <div className="card text-center space-y-6">
+          <div className="eyebrow-tag mx-auto">
+            <span className="w-1.5 h-1.5 rounded-full bg-patina-400" />
+            <span>[ 02. VAULT LEDGER ]</span>
           </div>
-          <h2 className="font-display text-2xl font-bold text-halo-soft mb-3">
-            Vault Ledger Empty
-          </h2>
-          <p className="text-xs text-halo-dim mb-6 max-w-md mx-auto font-sans">
-            No active salary stream registered. Set up an encrypted income stream to calculate your confidential borrow capacity.
-          </p>
+
+          {/* Empty-state House Line-Art SVG Diagram */}
+          <div className="w-full h-40 bg-mist-950/80 rounded-xl border border-mist-700/80 flex items-center justify-center p-4 shadow-inner">
+            <svg viewBox="0 0 320 120" className="w-full h-full max-w-[280px]" fill="none">
+              <rect x="20" y="20" width="280" height="80" rx="8" stroke="#3B382D" strokeWidth="1.5" fill="#16150F" strokeDasharray="6 6" />
+              <path d="M 60 60 H 260" stroke="#565243" strokeWidth="1" />
+              <circle cx="60" cy="60" r="8" fill="#1C1A14" stroke="#BFA24C" strokeWidth="2" />
+              <circle cx="160" cy="60" r="8" fill="#1C1A14" stroke="#565243" strokeWidth="1.5" />
+              <circle cx="260" cy="60" r="8" fill="#1C1A14" stroke="#565243" strokeWidth="1.5" />
+              <text x="160" y="92" textAnchor="middle" className="font-mono text-[10px] fill-halo-deep tracking-wider">
+                WAITING FOR ON-CHAIN INCOME STREAM
+              </text>
+            </svg>
+          </div>
+
+          <div>
+            <h2 className="font-display text-3xl font-bold text-halo-soft mb-2">
+              Vault Ledger Empty
+            </h2>
+            <p className="text-xs sm:text-sm text-halo-dim max-w-md mx-auto font-sans leading-relaxed">
+              No active salary stream registered on-chain yet. Register an encrypted income stream to calculate your confidential borrowing capacity.
+            </p>
+          </div>
+
           <button
             onClick={onNavigateStream}
-            className="px-6 py-2.5 bg-patina-400 hover:bg-patina-500 text-mist-950 font-semibold font-mono text-xs rounded-lg transition-colors shadow-panel"
+            className="btn-primary w-full sm:w-auto"
           >
-            + Register Salary Stream
+            + Register Salary Stream (Step 01)
           </button>
         </div>
       </div>
@@ -48,20 +67,21 @@ export const Screen3CreditDashboard: React.FC<Screen3CreditDashboardProps> = ({
   const availableBorrow = Math.max(0, maxBorrowCapacity - activeBorrow);
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 py-2">
+    <div className="max-w-5xl mx-auto space-y-8 py-2">
       {/* Header Ledger Summary */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-mist-700 pb-6">
         <div>
-          <span className="text-xs font-mono text-patina-400 uppercase tracking-wider block">
-            VAULT LEDGER
-          </span>
-          <h2 className="font-display text-3xl font-bold text-halo-soft mt-1">
-            Credit Dashboard
+          <div className="eyebrow-tag">
+            <span className="w-1.5 h-1.5 rounded-full bg-patina-400" />
+            <span>[ 02. VAULT LEDGER ]</span>
+          </div>
+          <h2 className="font-display text-3xl sm:text-4xl font-bold tracking-tight text-halo-soft">
+            Confidential Credit Ledger
           </h2>
         </div>
         <button
           onClick={onNavigateBorrow}
-          className="mt-4 sm:mt-0 px-5 py-2.5 bg-patina-400 hover:bg-patina-500 text-mist-950 font-semibold text-xs font-mono rounded-lg transition-colors shadow-panel"
+          className="mt-4 sm:mt-0 btn-primary"
         >
           + Request Borrow
         </button>
@@ -102,18 +122,18 @@ export const Screen3CreditDashboard: React.FC<Screen3CreditDashboardProps> = ({
       </div>
 
       {/* Underwriting Stream Details Panel */}
-      <div className="bg-mist-900 border border-mist-700 rounded-xl p-6 shadow-panel">
-        <h3 className="font-display text-lg font-semibold text-halo-soft mb-4">
+      <div className="card space-y-4">
+        <h3 className="font-display text-xl font-bold text-halo-soft">
           Underwriting Income Stream Details
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-mono">
-          <div className="p-3.5 bg-mist-950 rounded-lg border border-mist-700">
-            <span className="text-halo-deep block mb-1">EMPLOYER ADDRESS</span>
-            <span className="text-halo-soft truncate block">{streamData.employer}</span>
+          <div className="p-4 bg-mist-950/80 rounded-xl border border-mist-700/80 shadow-panel space-y-1">
+            <span className="text-halo-deep block text-[10px] tracking-wider uppercase font-semibold">EMPLOYER ADDRESS</span>
+            <span className="text-halo-soft truncate block font-medium">{streamData.employer}</span>
           </div>
-          <div className="p-3.5 bg-mist-950 rounded-lg border border-mist-700">
-            <span className="text-halo-deep block mb-1">ENCRYPTED HANDLE</span>
-            <span className="text-patina-300 truncate block">{streamData.handle}</span>
+          <div className="p-4 bg-mist-950/80 rounded-xl border border-mist-700/80 shadow-panel space-y-1">
+            <span className="text-halo-deep block text-[10px] tracking-wider uppercase font-semibold">ENCRYPTED CIPHER HANDLE</span>
+            <span className="text-patina-300 truncate block font-semibold">{streamData.handle}</span>
           </div>
         </div>
       </div>

@@ -11,5 +11,8 @@
     "build": "npm run build --workspaces",
     "test": "npm run test --workspaces"
   },
-  "devDependencies": {}
+  "devDependencies": {},
+  "overrides": {
+    "qr": "0.5.5"
+  }
 }

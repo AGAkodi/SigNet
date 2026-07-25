@@ -101,27 +101,31 @@ export const Screen2StreamSetup: React.FC<Screen2StreamSetupProps> = ({
   const currentHandle = encResult?.encryptedHandle || "0x0000000000000000000000000000000000000000000000000000000000000000";
 
   return (
-    <div className="max-w-xl mx-auto py-8 px-4">
-      <div className="bg-mist-900 border border-mist-700 rounded-2xl p-6 sm:p-8 shadow-panel">
-        <div className="flex items-center justify-between border-b border-mist-700 pb-4 mb-6">
+    <div className="max-w-2xl mx-auto py-6 px-4">
+      <div className="card">
+        {/* Header with Consistent Eyebrow Tag */}
+        <div className="flex items-start justify-between border-b border-mist-700 pb-5 mb-6">
           <div>
-            <span className="text-xs font-mono text-patina-400">STEP 01 OF 04</span>
-            <h2 className="font-display text-2xl font-bold text-halo-soft">
+            <div className="eyebrow-tag">
+              <span className="w-1.5 h-1.5 rounded-full bg-patina-400" />
+              <span>[ 01. STREAM SETUP ]</span>
+            </div>
+            <h2 className="font-display text-3xl sm:text-4xl font-bold tracking-tight text-halo-soft">
               Income Stream Setup
             </h2>
           </div>
-          <span className="px-2.5 py-1 bg-mist-800 border border-mist-700 text-patina-300 text-xs font-mono rounded">
-            IncomeStream.sol (Sepolia)
+          <span className="px-3 py-1 bg-mist-800 border border-mist-700 text-patina-300 text-xs font-mono rounded-lg shadow-panel shrink-0 mt-1">
+            IncomeStream.sol
           </span>
         </div>
 
-        <p className="text-xs text-halo-dim mb-6 font-sans">
+        <p className="text-xs sm:text-sm text-halo-dim mb-8 font-sans leading-relaxed">
           Register your payroll income stream. Monthly earnings are converted into a 32-byte encrypted handle and recorded on-chain via <code className="text-patina-300 font-mono">IncomeStream.sol</code> at <code className="text-patina-300 font-mono">0x42ced2...f7cf</code>.
         </p>
 
-        <form onSubmit={handleCreateStream} className="space-y-5">
+        <form onSubmit={handleCreateStream} className="space-y-6">
           <div>
-            <label className="block text-xs font-mono text-halo-dim mb-1.5 uppercase">
+            <label className="block text-xs font-mono text-halo-dim mb-2 uppercase tracking-wider">
               Employer Wallet Address
             </label>
             <input
@@ -129,12 +133,12 @@ export const Screen2StreamSetup: React.FC<Screen2StreamSetupProps> = ({
               value={employerAddress}
               onChange={(e) => setEmployerAddress(e.target.value)}
               required
-              className="w-full bg-mist-950 border border-mist-700 focus:border-patina-400 text-halo-soft font-mono text-sm px-3.5 py-2.5 rounded-lg focus:outline-none transition-colors"
+              className="input-field"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-mono text-halo-dim mb-1.5 uppercase">
+            <label className="block text-xs font-mono text-halo-dim mb-2 uppercase tracking-wider">
               Monthly Salary Rate ($ USD)
             </label>
             <input
@@ -143,19 +147,19 @@ export const Screen2StreamSetup: React.FC<Screen2StreamSetupProps> = ({
               onChange={(e) => setMonthlySalary(e.target.value)}
               required
               min="100"
-              className="w-full bg-mist-950 border border-mist-700 focus:border-patina-400 text-halo-soft font-mono text-sm px-3.5 py-2.5 rounded-lg focus:outline-none transition-colors"
+              className="input-field"
             />
           </div>
 
           {/* Live Sealed Ticker Preview */}
-          <div className="p-4 bg-mist-950 border border-mist-700 rounded-xl space-y-2">
+          <div className="p-5 bg-mist-950/80 border border-mist-700 rounded-xl space-y-3 shadow-panel">
             <WaxSealValue
               label="Live Sealed Salary Stream Ticker"
               encryptedHandle={currentHandle}
               actualValue={`$${parseFloat(monthlySalary || "0").toLocaleString()}.00 / mo`}
               userAddress={userAddress}
             />
-            <div className="flex items-center gap-2 text-[10px] font-mono text-halo-deep pt-1 border-t border-mist-700/50">
+            <div className="flex items-center gap-2 text-[11px] font-mono text-halo-deep pt-2 border-t border-mist-700/60">
               <span className="w-1.5 h-1.5 rounded-full bg-patina-400" />
               <span>Handle Format: 32-byte bytes32 ({encResult?.isStubbed ? "Local Demo Encryption Stub" : "Live TEE Cipher"})</span>
             </div>
@@ -163,15 +167,15 @@ export const Screen2StreamSetup: React.FC<Screen2StreamSetupProps> = ({
 
           {/* Transaction Status Alerts */}
           {isWriting && (
-            <div className="p-3 bg-patina-500/10 border border-patina-400/40 rounded-lg text-xs font-mono text-patina-300 flex items-center gap-2">
+            <div className="p-4 bg-patina-500/10 border border-patina-400/40 rounded-xl text-xs font-mono text-patina-300 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-patina-400 animate-ping" />
               Please confirm the transaction in your MetaMask wallet...
             </div>
           )}
 
           {isConfirming && hash && (
-            <div className="p-3.5 bg-mist-950 border border-patina-400/60 rounded-lg text-xs font-mono text-halo-soft space-y-1">
-              <div className="flex items-center gap-2 text-patina-300">
+            <div className="p-4 bg-mist-950 border border-patina-400/60 rounded-xl text-xs font-mono text-halo-soft space-y-1.5">
+              <div className="flex items-center gap-2 text-patina-300 font-semibold">
                 <span className="w-2 h-2 rounded-full bg-patina-400 animate-pulse" />
                 Transaction submitted! Mining block on Arbitrum Sepolia...
               </div>
@@ -187,7 +191,7 @@ export const Screen2StreamSetup: React.FC<Screen2StreamSetupProps> = ({
           )}
 
           {(writeError || receiptError) && (
-            <div className="p-3.5 bg-danger-soft border border-danger-border rounded-lg text-xs font-mono text-danger space-y-1">
+            <div className="p-4 bg-danger-soft border border-danger-border rounded-xl text-xs font-mono text-danger space-y-1">
               <div className="font-semibold">⚠️ Transaction Error</div>
               <p className="text-[11px] opacity-90 break-words">
                 {writeError?.message || receiptError?.message || "Contract call failed."}
@@ -198,11 +202,7 @@ export const Screen2StreamSetup: React.FC<Screen2StreamSetupProps> = ({
           <button
             type="submit"
             disabled={isBusy}
-            className={`w-full py-3 font-semibold text-xs font-mono rounded-lg transition-colors shadow-panel ${
-              isBusy
-                ? "bg-mist-800 text-halo-deep cursor-wait border border-mist-700"
-                : "bg-patina-400 hover:bg-patina-500 text-mist-950 focus:outline-none focus:ring-1 focus:ring-patina-300"
-            }`}
+            className={`w-full ${isBusy ? "btn-outline opacity-60" : "btn-primary"}`}
           >
             {isWriting
               ? "Confirming Signature in Wallet..."

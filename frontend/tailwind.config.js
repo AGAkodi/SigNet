@@ -23,6 +23,14 @@ module.exports = {
         mist,
         halo,
         patina,
+        cream: {
+          DEFAULT: '#F4EFE4',
+          text: '#1B1610',
+          muted: '#6E675F',
+          border: '#DCD4C4',
+          card: '#EFE9DA',
+          diagram: '#E5DFC0',
+        },
         danger: {
           DEFAULT: '#E55B4C',
           soft: 'rgba(229, 91, 76, 0.15)',

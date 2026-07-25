@@ -126,25 +126,25 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
   const isBusy = isWriting || isConfirming;
 
   return (
-    <div className="max-w-2xl mx-auto py-8 px-4 space-y-6">
+    <div className="max-w-2xl mx-auto py-6 px-4 space-y-6">
       {/* Liquidation Risk Banner */}
       {isLiquidatable && (
-        <div className="p-4 bg-danger-soft border border-danger-border rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-panel">
+        <div className="p-5 bg-danger-soft border border-danger-border rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-panel">
           <div className="flex items-center gap-3">
-            <span className="text-xl shrink-0">⚠️</span>
+            <span className="text-2xl shrink-0">⚠️</span>
             <div>
               <h4 className="font-display font-semibold text-sm text-halo-soft">
                 Liquidation Risk Signal Active
               </h4>
-              <p className="text-xs text-halo-dim font-sans">
-                TEE coprocessor emitted discrete boolean signal: <code className="text-danger font-mono">liquidatable = true</code>. No position sizes exposed.
+              <p className="text-xs text-halo-dim font-sans leading-relaxed">
+                TEE coprocessor emitted discrete boolean signal: <code className="text-danger font-mono font-semibold">liquidatable = true</code>. No position magnitudes exposed.
               </p>
             </div>
           </div>
           <button
             onClick={() => handleEvaluateLiquidationOnChain()}
             disabled={isBusy}
-            className="shrink-0 px-4 py-2 bg-danger hover:bg-red-700 text-white font-mono text-xs rounded-lg font-semibold shadow-panel transition-colors"
+            className="shrink-0 btn-danger"
           >
             Emergency Repay
           </button>
@@ -152,12 +152,16 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
       )}
 
       {/* Loan Management Ledger */}
-      <div className="bg-mist-900 border border-mist-700 rounded-2xl p-6 sm:p-8 shadow-panel">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-mist-700 pb-4 mb-6">
+      <div className="card">
+        {/* Header with Consistent Eyebrow Tag */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-mist-700 pb-5 mb-6">
           <div>
-            <span className="text-xs font-mono text-patina-400">STEP 04 OF 04</span>
-            <h2 className="font-display text-2xl font-bold text-halo-soft">
-              Loan Position Management
+            <div className="eyebrow-tag">
+              <span className="w-1.5 h-1.5 rounded-full bg-patina-400" />
+              <span>[ 04. LOAN MANAGEMENT ]</span>
+            </div>
+            <h2 className="font-display text-3xl sm:text-4xl font-bold tracking-tight text-halo-soft">
+              Active Debt & Repayment
             </h2>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -165,16 +169,16 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
               type="button"
               onClick={handleEvaluateLiquidationOnChain}
               disabled={isBusy}
-              className="px-2.5 py-1.5 bg-mist-800 hover:bg-mist-750 border border-mist-700 text-[11px] font-mono text-patina-300 rounded transition-colors"
+              className="btn-outline !px-3 !py-1.5 !text-[11px]"
             >
               Evaluate On-Chain Liquidation (TEE)
             </button>
             <button
               type="button"
               onClick={() => setIsLiquidatable((prev) => !prev)}
-              className="px-2.5 py-1.5 bg-mist-950 hover:bg-mist-850 border border-mist-700 text-[11px] font-mono text-halo-deep rounded transition-colors"
+              className="btn-ghost !px-3 !py-1.5 !text-[11px]"
             >
-              {isLiquidatable ? "Clear Local Risk Banner" : "Preview Local Risk Banner"}
+              {isLiquidatable ? "Clear Local Banner" : "Preview Risk Banner"}
             </button>
           </div>
         </div>
@@ -182,7 +186,7 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
         {/* Position Summary Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6 items-stretch">
           {/* Card 1: Real On-Chain Encrypted Borrow Balance */}
-          <div className="p-4 bg-mist-950 border border-mist-700 rounded-xl flex flex-col justify-between">
+          <div className="p-5 bg-mist-950/80 border border-mist-700 rounded-xl flex flex-col justify-between shadow-panel">
             <WaxSealValue
               label="Active Principal Balance (On-Chain)"
               encryptedHandle={currentOnChainHandle}
@@ -192,16 +196,16 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
           </div>
 
           {/* Card 2: Health Status Badge */}
-          <div className="p-4 bg-mist-950 border border-mist-700 rounded-xl flex flex-col justify-between">
-            <span className="text-xs uppercase tracking-wider text-halo-dim font-mono block mb-2">
-              Health Status Badge
+          <div className="p-5 bg-mist-950/80 border border-mist-700 rounded-xl flex flex-col justify-between shadow-panel">
+            <span className="text-[10px] uppercase tracking-wider text-halo-dim font-mono block mb-2 font-semibold">
+              HEALTH STATUS BADGE
             </span>
             <div className="mt-1">
               <span
-                className={`inline-flex items-center gap-2 px-3 py-1 text-xs font-mono rounded-full border ${
+                className={`inline-flex items-center gap-2 px-3.5 py-1.5 text-xs font-mono rounded-full border shadow-panel ${
                   isLiquidatable
-                    ? "bg-danger-soft border-danger-border text-danger"
-                    : "bg-patina-500/20 border-patina-400/50 text-patina-300"
+                    ? "bg-danger-soft border-danger-border text-danger font-semibold"
+                    : "bg-patina-500/20 border-patina-400/50 text-patina-300 font-semibold"
                 }`}
               >
                 <span
@@ -219,9 +223,9 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
         </div>
 
         {/* Repayment Form */}
-        <form onSubmit={handleRepay} className="space-y-4">
+        <form onSubmit={handleRepay} className="space-y-5">
           <div>
-            <label className="block text-xs font-mono text-halo-dim mb-1.5 uppercase">
+            <label className="block text-xs font-mono text-halo-dim mb-2 uppercase tracking-wider font-medium">
               Repayment Amount ($ USD)
             </label>
             <input
@@ -230,21 +234,21 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
               onChange={(e) => setRepayAmount(e.target.value)}
               min="1"
               required
-              className="w-full bg-mist-950 border border-mist-700 focus:border-patina-400 text-halo-soft font-mono text-sm px-3.5 py-2.5 rounded-lg focus:outline-none transition-colors"
+              className="input-field"
             />
           </div>
 
           {/* Transaction Status Alerts */}
           {isWriting && (
-            <div className="p-3 bg-patina-500/10 border border-patina-400/40 rounded-lg text-xs font-mono text-patina-300 flex items-center gap-2">
+            <div className="p-4 bg-patina-500/10 border border-patina-400/40 rounded-xl text-xs font-mono text-patina-300 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-patina-400 animate-ping" />
               Please confirm the {activeAction === "REPAY" ? "Repayment" : "Liquidation Evaluation"} transaction in your wallet...
             </div>
           )}
 
           {isConfirming && hash && (
-            <div className="p-3.5 bg-mist-950 border border-patina-400/60 rounded-lg text-xs font-mono text-halo-soft space-y-1">
-              <div className="flex items-center gap-2 text-patina-300">
+            <div className="p-4 bg-mist-950 border border-patina-400/60 rounded-xl text-xs font-mono text-halo-soft space-y-1.5">
+              <div className="flex items-center gap-2 text-patina-300 font-semibold">
                 <span className="w-2 h-2 rounded-full bg-patina-400 animate-pulse" />
                 {activeAction === "REPAY" ? "Encrypted Repayment" : "Liquidation Evaluation"} submitted! Mining block on Sepolia...
               </div>
@@ -260,7 +264,7 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
           )}
 
           {(writeError || receiptError) && (
-            <div className="p-3.5 bg-danger-soft border border-danger-border rounded-lg text-xs font-mono text-danger space-y-1">
+            <div className="p-4 bg-danger-soft border border-danger-border rounded-xl text-xs font-mono text-danger space-y-1">
               <div className="font-semibold">⚠️ Transaction Error</div>
               <p className="text-[11px] opacity-90 break-words">
                 {writeError?.message || receiptError?.message || "Contract call failed."}
@@ -271,11 +275,7 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
           <button
             type="submit"
             disabled={isBusy}
-            className={`w-full py-3 font-semibold text-xs font-mono rounded-lg transition-colors shadow-panel ${
-              isBusy
-                ? "bg-mist-800 text-halo-deep cursor-wait border border-mist-700"
-                : "bg-patina-400 hover:bg-patina-500 text-mist-950 focus:outline-none focus:ring-1 focus:ring-patina-300"
-            }`}
+            className={`w-full ${isBusy ? "btn-outline opacity-60" : "btn-primary"}`}
           >
             {isWriting
               ? "Confirming Signature in Wallet..."

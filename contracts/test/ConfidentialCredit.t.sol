@@ -301,4 +301,48 @@ contract ConfidentialCreditTest is Test {
         assertEq(euint256.unwrap(creditVault.getEncryptedCollateral(borrower)), bytes32(0));
         assertEq(euint256.unwrap(creditVault.getEncryptedBorrowBalance(borrower)), bytes32(0));
     }
+
+    function test_Liquidation_RevertsIfUserRepaysAndBecomesHealthyBeforeLiquidate() public {
+        uint256 depositAmount = 5000 * 1e6;
+        uint256 borrowAmount = 20000 * 1e6;
+        uint256 repayAmount = 10000 * 1e6;
+        euint256 lowCollateral = Nox.toEuint256(5000);
+        externalEuint256 extCol = externalEuint256.wrap(euint256.unwrap(lowCollateral));
+        externalEuint256 extBor = externalEuint256.wrap(euint256.unwrap(mockBorrow));
+
+        vm.prank(employer);
+        incomeStream.createStream(borrower, mockIncomeRate);
+
+        vm.startPrank(borrower);
+        mockUsdc.approve(address(creditVault), depositAmount);
+        creditVault.depositCollateral(address(mockUsdc), depositAmount, extCol, proof);
+
+        // Borrow Call 1 ($20,000)
+        creditVault.evaluateBorrowEligibility(address(mockUsdc), borrowAmount, extBor, proof);
+        creditVault.requestBorrow(address(mockUsdc), borrowAmount, proof);
+
+        // Borrow Call 2 ($20,000 -> Total $40,000 debt vs $35,000 capacity)
+        creditVault.evaluateBorrowEligibility(address(mockUsdc), borrowAmount, extBor, proof);
+        creditVault.requestBorrow(address(mockUsdc), borrowAmount, proof);
+        vm.stopPrank();
+
+        // 1. Position is underwater. Tx 1: evaluate liquidation
+        ebool underwaterSignal = creditVault.checkAndLiquidate(borrower);
+        assertTrue(Nox.isInitialized(underwaterSignal));
+        assertEq(ebool.unwrap(underwaterSignal), bytes32(uint256(1))); // Liquidatable pre-repay
+
+        // 2. Intermediate Tx: Borrower repays $10,000 to bring debt to $30,000 (healthy)
+        // repay() triggers _autoCheckLiquidation() which overwrites _encryptedLiquidationSignal with fresh signal
+        euint256 repayHandle = Nox.toEuint256(10000);
+        externalEuint256 extRep = externalEuint256.wrap(euint256.unwrap(repayHandle));
+        vm.startPrank(borrower);
+        mockUsdc.approve(address(creditVault), repayAmount);
+        creditVault.repay(address(mockUsdc), repayAmount, extRep, proof);
+        vm.stopPrank();
+
+        // 3. Tx 2: Liquidator attempts to liquidate using the old proof generated for pre-repay evaluation
+        vm.prank(liquidator);
+        vm.expectRevert("ConfidentialCredit: position is healthy and not liquidatable");
+        creditVault.liquidate(borrower, proof);
+    }
 }

@@ -335,5 +335,52 @@ describe("Nox Private Credit — Real Aave V3 Comprehensive Suite", function () 
       expect(await creditVault.getEncryptedCollateral(borrower.address)).to.equal(ethers.ZeroHash);
       expect(await creditVault.getEncryptedBorrowBalance(borrower.address)).to.equal(ethers.ZeroHash);
     });
+
+    it("should REVERT liquidate() when borrower repays and becomes healthy between checkAndLiquidate (Tx 1) and liquidate (Tx 2)", async function () {
+      const depositAmount = ethers.parseUnits("5000", 6);
+      const borrowAmount = ethers.parseUnits("20000", 6);
+      const repayAmount = ethers.parseUnits("10000", 6);
+      const lowCollateral = ethers.zeroPadValue(ethers.toBeHex(5000), 32);
+
+      await incomeStream.connect(employer)["createStream(address,bytes32)"](borrower.address, mockIncomeRate);
+      await mockUsdc.connect(borrower).approve(await creditVault.getAddress(), depositAmount);
+      await creditVault.connect(borrower)["depositCollateral(address,uint256,bytes32,bytes)"](
+        await mockUsdc.getAddress(),
+        depositAmount,
+        lowCollateral,
+        proof
+      );
+
+      // Borrow Call 1 ($20,000)
+      await creditVault.connect(borrower).evaluateBorrowEligibility(await mockUsdc.getAddress(), borrowAmount, mockBorrow, proof);
+      await creditVault.connect(borrower).requestBorrow(await mockUsdc.getAddress(), borrowAmount, proof);
+
+      // Borrow Call 2 ($20,000 -> Total $40,000 debt vs $35,000 capacity)
+      await creditVault.connect(borrower).evaluateBorrowEligibility(await mockUsdc.getAddress(), borrowAmount, mockBorrow, proof);
+      await creditVault.connect(borrower).requestBorrow(await mockUsdc.getAddress(), borrowAmount, proof);
+
+      // 1. Position underwater -> checkAndLiquidate (Tx 1)
+      await creditVault.checkAndLiquidate(borrower.address);
+      const oldSignal = await creditVault.getEncryptedLiquidationSignal(borrower.address);
+      expect(oldSignal).to.not.equal(ethers.ZeroHash);
+
+      // 2. Borrower repays $10,000 to become healthy -> triggers _autoCheckLiquidation & overwrites signal handle
+      const repayHandle = ethers.zeroPadValue(ethers.toBeHex(10000), 32);
+      await mockUsdc.connect(borrower).approve(await creditVault.getAddress(), repayAmount);
+      await creditVault.connect(borrower)["repay(address,uint256,bytes32,bytes)"](
+        await mockUsdc.getAddress(),
+        repayAmount,
+        repayHandle,
+        proof
+      );
+
+      const newSignal = await creditVault.getEncryptedLiquidationSignal(borrower.address);
+      expect(newSignal).to.equal(ethers.ZeroHash); // Fresh signal overwritten to healthy (false)
+
+      // 3. Liquidator attempts liquidate (Tx 2) with old proof -> REVERTS
+      await expect(
+        creditVault.connect(liquidator).liquidate(borrower.address, proof)
+      ).to.be.revertedWith("ConfidentialCredit: position is healthy and not liquidatable");
+    });
   });
 });

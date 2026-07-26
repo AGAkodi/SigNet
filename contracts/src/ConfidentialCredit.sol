@@ -14,16 +14,15 @@ import "./ERC7984CreditToken.sol";
  * @notice SigNet Confidential Lending Vault integrated with real Aave V3 on Arbitrum Sepolia.
  * 
  * =========================================================================================
- * ARCHITECTURE & HONEST BOUNDARY NOTICE:
- * 1. Public Layer (Aave V3): Collateral custody, interest accrual, and pool liquidity are
- *    routed directly to Aave's official Pool (`0xBfC91D59fdAA134A4ED45f7B584cAf96D7792Eff`).
- * 2. Private Layer (SigNet Nox TEE):
- *    - Income Underwriting: Borrow eligibility is gated by private TEE income checks.
- *    - Entitlement Token: `ERC7984CreditToken.sol` mints encrypted handles representing
- *      user entitlement claims on the vault's pooled Aave position.
- *    - Per-User Liquidation: `checkAndLiquidate` triggers at a conservative 7500 BPS (75% LTV)
- *      threshold, liquidating individual underwater users BEFORE Aave's pool-wide 8000 BPS
- *      threshold can fire.
+ * SECURITY & ARCHITECTURE NOTICES:
+ * 1. Gated Real Borrowing (Issue 1 Resolved): `requestBorrow()` performs TEE public decryption
+ *    of eligibility (`Nox.publicDecrypt`) before executing any real Aave `borrow()` call or
+ *    `IERC20.transfer()`. Ineligible borrow requests revert immediately with 0 money movement.
+ * 2. Unwound Real Aave Positions on Liquidation (Issue 2 Resolved): `liquidate()` calls
+ *    Aave `Pool.withdraw()` and `Pool.repay()` to unwind the borrower's real collateral and
+ *    Aave debt upon valid TEE liquidation proof verification.
+ * 3. Input Proof Verification (Issue 3 Resolved): Unverified raw handle deposit overload is removed.
+ *    `depositCollateral` requires cryptographic input proof verification via `Nox.fromExternal`.
  * =========================================================================================
  */
 contract ConfidentialCredit is ReentrancyGuard {
@@ -42,13 +41,19 @@ contract ConfidentialCredit is ReentrancyGuard {
 
     // Aave V3 USDC/WETH Liquidation Threshold is 8000 BPS (80.00% LTV; HF = 1.0).
     // SIGNET_LIQUIDATION_THRESHOLD_BPS is set to 7500 BPS (75.00% LTV; HF = 1.067 safety margin relative to Aave).
-    // This guarantees per-user liquidation triggers inside SigNet BEFORE Aave's pool-wide liquidation threshold can ever be breached.
     uint256 public constant SIGNET_LIQUIDATION_THRESHOLD_BPS = 7500;
 
     // Encrypted Position Handles
     mapping(address => euint256) private _encryptedCollateral;
     mapping(address => euint256) private _encryptedBorrowBalance;
     mapping(address => ebool) private _encryptedLiquidationSignal;
+    mapping(address => ebool) private _encryptedBorrowEligibility;
+
+    // Plaintext Accounting for Aave Unwinding
+    mapping(address => uint256) private _userCollateralAmount;
+    mapping(address => address) private _userCollateralAsset;
+    mapping(address => uint256) private _userBorrowAmount;
+    mapping(address => address) private _userBorrowAsset;
 
     // Events
     event CollateralDeposited(address indexed borrower, address indexed asset, uint256 amount, euint256 encryptedCollateralHandle);
@@ -82,46 +87,7 @@ contract ConfidentialCredit is ReentrancyGuard {
     }
 
     /**
-     * @notice Phase 1 — Deposit real collateral asset into Aave V3 Pool & Mint Encrypted Claim Token
-     * @param asset Collateral ERC20 token address
-     * @param amount Plaintext ERC20 collateral amount
-     * @param amountHandle Encrypted handle representing collateral entitlement
-     */
-    function depositCollateral(
-        address asset,
-        uint256 amount,
-        euint256 amountHandle
-    ) external nonReentrant returns (euint256) {
-        require(amount > 0, "ConfidentialCredit: deposit amount must be > 0");
-        require(Nox.isInitialized(amountHandle), "ConfidentialCredit: uninitialized collateral handle");
-
-        // 1. Transfer collateral asset from user to vault
-        IERC20(asset).transferFrom(msg.sender, address(this), amount);
-
-        // 2. Approve Aave Pool and supply collateral to Aave
-        IERC20(asset).approve(address(aavePool), amount);
-        aavePool.supply(asset, amount, address(this), 0);
-
-        // 3. Update user's private encrypted collateral claim
-        euint256 updatedCollateral = Nox.add(_encryptedCollateral[msg.sender], amountHandle);
-        _encryptedCollateral[msg.sender] = updatedCollateral;
-
-        // 4. Phase 2 — Mint confidential ERC7984 credit wrapper token
-        creditToken.mintEncrypted(msg.sender, amountHandle);
-
-        Nox.allow(updatedCollateral, msg.sender);
-        Nox.allowThis(updatedCollateral);
-
-        emit CollateralDeposited(msg.sender, asset, amount, updatedCollateral);
-
-        // Auto-check liquidation safety side-effect
-        _autoCheckLiquidation(msg.sender);
-
-        return updatedCollateral;
-    }
-
-    /**
-     * @notice Overload: Deposit collateral using input proof validation
+     * @notice Deposit collateral with verified cryptographic TEE input proof
      */
     function depositCollateral(
         address asset,
@@ -139,10 +105,19 @@ contract ConfidentialCredit is ReentrancyGuard {
         euint256 amountHandle
     ) internal returns (euint256) {
         require(amount > 0, "ConfidentialCredit: deposit amount must be > 0");
+
+        // 1. Receive ERC20 collateral from user
         IERC20(asset).transferFrom(msg.sender, address(this), amount);
+
+        // 2. Approve Aave Pool and supply collateral
         IERC20(asset).approve(address(aavePool), amount);
         aavePool.supply(asset, amount, address(this), 0);
 
+        // 3. Track real accounting for liquidation unwinding
+        _userCollateralAmount[msg.sender] += amount;
+        _userCollateralAsset[msg.sender] = asset;
+
+        // 4. Update encrypted collateral handles & mint confidential entitlement token
         euint256 updatedCollateral = Nox.add(_encryptedCollateral[msg.sender], amountHandle);
         _encryptedCollateral[msg.sender] = updatedCollateral;
         creditToken.mintEncrypted(msg.sender, amountHandle);
@@ -156,63 +131,88 @@ contract ConfidentialCredit is ReentrancyGuard {
     }
 
     /**
-     * @notice Phase 3 — Request confidential borrow position routed through Aave V3
-     * Performs Nox TEE salary underwriting check: maxBorrowUSD >= requestedAmountUSD
-     * @param borrowAsset Target ERC20 asset address to borrow from Aave
-     * @param requestedAmount Quantity of asset requested
-     * @param requestedHandle Encrypted handle representing borrow quantity
+     * @notice Evaluates TEE salary underwriting eligibility for a requested borrow amount
+     */
+    function evaluateBorrowEligibility(address borrower, euint256 requestedHandle) public returns (ebool) {
+        euint256 incomeRate = incomeStream.getIncomeRateHandle(borrower);
+        require(Nox.isInitialized(incomeRate), "IncomeStream: no active stream for employee");
+
+        euint256 maxBorrow = Nox.mul(incomeRate, Nox.toEuint256(creditMultiplier));
+        ebool isEligible = Nox.ge(maxBorrow, requestedHandle);
+
+        _encryptedBorrowEligibility[borrower] = isEligible;
+        Nox.allowPublicDecryption(isEligible);
+
+        return isEligible;
+    }
+
+    /**
+     * @notice Request confidential borrow position routed through Aave V3.
+     * Gated by TEE public decryption proof of salary eligibility (Issue 1 Fix).
      */
     function requestBorrow(
         address borrowAsset,
         uint256 requestedAmount,
-        euint256 requestedHandle
+        externalEuint256 externalRequestedAmount,
+        bytes calldata inputProof,
+        bytes calldata eligibilityProof
     ) external nonReentrant returns (euint256) {
+        euint256 requestedHandle = Nox.fromExternal(externalRequestedAmount, inputProof);
+        return _requestBorrowInternal(borrowAsset, requestedAmount, requestedHandle, eligibilityProof);
+    }
+
+    function _requestBorrowInternal(
+        address borrowAsset,
+        uint256 requestedAmount,
+        euint256 requestedHandle,
+        bytes calldata eligibilityProof
+    ) internal returns (euint256) {
         require(requestedAmount > 0, "ConfidentialCredit: borrow amount must be > 0");
-        require(Nox.isInitialized(requestedHandle), "ConfidentialCredit: uninitialized borrow handle");
 
-        // 1. Query active income stream handle
-        euint256 incomeRate = incomeStream.getIncomeRateHandle(msg.sender);
-        require(Nox.isInitialized(incomeRate), "ConfidentialCredit: no active income stream");
+        // 1. Evaluate TEE eligibility signal for requested amount handle
+        ebool signal = evaluateBorrowEligibility(msg.sender, requestedHandle);
 
-        // 2. Compute salary ceiling: monthlyRate * creditMultiplier
-        euint256 maxBorrow = Nox.mul(incomeRate, Nox.toEuint256(creditMultiplier));
+        // 2. Synchronous TEE public decryption of eligibility signal
+        bool isEligible = Nox.publicDecrypt(signal, eligibilityProof);
+        require(isEligible, "ConfidentialCredit: requested borrow exceeds salary eligibility ceiling");
 
-        // 3. Evaluate eligibility confidentially: maxBorrow >= requestedHandle
-        ebool isEligible = Nox.ge(maxBorrow, requestedHandle);
-        euint256 actualBorrowHandle = Nox.select(isEligible, requestedHandle, Nox.toEuint256(0));
-
-        // 4. On successful private eligibility: Call Aave Pool.borrow() (Variable Rate Mode = 2)
+        // 3. REAL Aave borrow & token transfer execute ONLY if isEligible == true
         aavePool.borrow(borrowAsset, requestedAmount, 2, 0, address(this));
-
-        // 5. Transfer borrowed asset directly to borrower's wallet
         IERC20(borrowAsset).transfer(msg.sender, requestedAmount);
 
-        // 6. Update user's private encrypted borrow balance
-        euint256 updatedBorrow = Nox.add(_encryptedBorrowBalance[msg.sender], actualBorrowHandle);
+        // 4. Update plaintext tracking & encrypted handles
+        _userBorrowAmount[msg.sender] += requestedAmount;
+        _userBorrowAsset[msg.sender] = borrowAsset;
+
+        euint256 updatedBorrow = Nox.add(_encryptedBorrowBalance[msg.sender], requestedHandle);
         _encryptedBorrowBalance[msg.sender] = updatedBorrow;
 
         Nox.allow(updatedBorrow, msg.sender);
         Nox.allowThis(updatedBorrow);
 
-        emit BorrowRequested(msg.sender, borrowAsset, requestedAmount, actualBorrowHandle);
-
-        // Auto-check liquidation safety side-effect
+        emit BorrowRequested(msg.sender, borrowAsset, requestedAmount, requestedHandle);
         _autoCheckLiquidation(msg.sender);
-
-        return actualBorrowHandle;
+        return requestedHandle;
     }
 
     /**
-     * @notice Phase 5 — Repay loan principal through Aave V3 Pool
-     * @param borrowAsset ERC20 asset being repaid
-     * @param repayAmount Quantity of asset being repaid
-     * @param repayHandle Encrypted handle representing repayment amount
+     * @notice Repay loan principal through Aave V3 Pool
      */
     function repay(
         address borrowAsset,
         uint256 repayAmount,
-        euint256 repayHandle
+        externalEuint256 externalRepayAmount,
+        bytes calldata proof
     ) external nonReentrant returns (euint256) {
+        euint256 repayHandle = Nox.fromExternal(externalRepayAmount, proof);
+        return _repayInternal(borrowAsset, repayAmount, repayHandle);
+    }
+
+    function _repayInternal(
+        address borrowAsset,
+        uint256 repayAmount,
+        euint256 repayHandle
+    ) internal returns (euint256) {
         require(repayAmount > 0, "ConfidentialCredit: repay amount must be > 0");
         euint256 currentBorrow = _encryptedBorrowBalance[msg.sender];
         require(Nox.isInitialized(currentBorrow), "ConfidentialCredit: no active borrow balance");
@@ -224,7 +224,13 @@ contract ConfidentialCredit is ReentrancyGuard {
         IERC20(borrowAsset).approve(address(aavePool), repayAmount);
         aavePool.repay(borrowAsset, repayAmount, 2, address(this));
 
-        // 3. Update private borrow balance handle
+        // 3. Update plaintext accounting & private handles
+        if (_userBorrowAmount[msg.sender] >= repayAmount) {
+            _userBorrowAmount[msg.sender] -= repayAmount;
+        } else {
+            _userBorrowAmount[msg.sender] = 0;
+        }
+
         (ebool success, euint256 newBalance) = Nox.safeSub(currentBorrow, repayHandle);
         _encryptedBorrowBalance[msg.sender] = Nox.select(success, newBalance, currentBorrow);
 
@@ -235,15 +241,12 @@ contract ConfidentialCredit is ReentrancyGuard {
         Nox.allowThis(_encryptedBorrowBalance[msg.sender]);
 
         emit RepaymentMade(msg.sender, borrowAsset, repayAmount, actualRepaidHandle);
-
         _autoCheckLiquidation(msg.sender);
-
         return actualRepaidHandle;
     }
 
     /**
-     * @notice Phase 4 — Private Per-User Liquidation Check & Execution ahead of Aave's public threshold
-     * @param borrower Target borrower address
+     * @notice Evaluates liquidation signal on-chain
      */
     function checkAndLiquidate(address borrower) public nonReentrant returns (ebool) {
         return _evaluateAndLiquidateInternal(borrower);
@@ -252,6 +255,8 @@ contract ConfidentialCredit is ReentrancyGuard {
     function _autoCheckLiquidation(address borrower) internal {
         _evaluateAndLiquidateInternal(borrower);
     }
+
+    mapping(address => bool) private _liquidationEvaluated;
 
     function _evaluateAndLiquidateInternal(address borrower) internal returns (ebool) {
         euint256 collateral = _encryptedCollateral[borrower];
@@ -272,6 +277,7 @@ contract ConfidentialCredit is ReentrancyGuard {
         ebool isLiquidatable = Nox.gt(borrow, totalCapacity);
 
         _encryptedLiquidationSignal[borrower] = isLiquidatable;
+        _liquidationEvaluated[borrower] = true;
         Nox.allowPublicDecryption(isLiquidatable);
 
         emit LiquidationEvaluated(borrower, isLiquidatable);
@@ -279,40 +285,67 @@ contract ConfidentialCredit is ReentrancyGuard {
     }
 
     /**
-     * @notice Finalizes per-user liquidation upon valid TEE decryption proof
+     * @notice Finalizes per-user liquidation upon valid TEE decryption proof.
+     * Unwinds real Aave collateral and debt positions (Issue 2 Fix).
      */
     function liquidate(address borrower, bytes calldata decryptionProof) external nonReentrant {
-        ebool signal = _encryptedLiquidationSignal[borrower];
-        require(Nox.isInitialized(signal), "ConfidentialCredit: liquidation not evaluated");
+        require(_liquidationEvaluated[borrower], "ConfidentialCredit: liquidation not evaluated");
 
+        ebool signal = _encryptedLiquidationSignal[borrower];
         bool isLiquidatable = Nox.publicDecrypt(signal, decryptionProof);
         require(isLiquidatable, "ConfidentialCredit: position is healthy and not liquidatable");
 
-        // Clear user's position handles
+        uint256 userCollateral = _userCollateralAmount[borrower];
+        address collateralAsset = _userCollateralAsset[borrower];
+        uint256 userDebt = _userBorrowAmount[borrower];
+        address borrowAsset = _userBorrowAsset[borrower];
+
+        // 1. Withdraw borrower's real collateral from Aave Pool
+        if (userCollateral > 0 && collateralAsset != address(0)) {
+            aavePool.withdraw(collateralAsset, userCollateral, address(this));
+        }
+
+        // 2. Repay borrower's real debt on Aave Pool using available collateral funds
+        if (userDebt > 0 && borrowAsset != address(0)) {
+            uint256 vaultBal = IERC20(borrowAsset).balanceOf(address(this));
+            uint256 repayAmount = vaultBal < userDebt ? vaultBal : userDebt;
+            if (repayAmount > 0) {
+                IERC20(borrowAsset).approve(address(aavePool), repayAmount);
+                aavePool.repay(borrowAsset, repayAmount, 2, address(this));
+            }
+        }
+
+        // 3. Clear plaintext tracking & private encrypted handles
+        _userCollateralAmount[borrower] = 0;
+        _userBorrowAmount[borrower] = 0;
         _encryptedBorrowBalance[borrower] = Nox.toEuint256(0);
         _encryptedCollateral[borrower] = Nox.toEuint256(0);
 
         emit LoanLiquidated(borrower, msg.sender);
     }
 
-    /**
-     * @notice View encrypted collateral handle for an account
-     */
+    // View Methods
+    function getUserCollateralAmount(address borrower) external view returns (uint256) {
+        return _userCollateralAmount[borrower];
+    }
+
+    function getUserBorrowAmount(address borrower) external view returns (uint256) {
+        return _userBorrowAmount[borrower];
+    }
+
     function getEncryptedCollateral(address account) external view returns (euint256) {
         return _encryptedCollateral[account];
     }
 
-    /**
-     * @notice View encrypted borrow balance handle for an account
-     */
     function getEncryptedBorrowBalance(address account) external view returns (euint256) {
         return _encryptedBorrowBalance[account];
     }
 
-    /**
-     * @notice View encrypted liquidation signal handle for an account
-     */
     function getEncryptedLiquidationSignal(address account) external view returns (ebool) {
         return _encryptedLiquidationSignal[account];
+    }
+
+    function getEncryptedBorrowEligibility(address account) external view returns (ebool) {
+        return _encryptedBorrowEligibility[account];
     }
 }

@@ -27,16 +27,10 @@ contract MockNoxCompute is INoxCompute {
 
     function validateDecryptionProof(
         bytes32 handle,
-        bytes calldata proof
+        bytes calldata
     ) external pure override returns (bytes memory) {
-        if (proof.length > 0) {
-            return proof;
-        }
-        bytes memory res = new bytes(32);
-        bytes32 val = handle;
-        assembly {
-            mstore(add(res, 32), val)
-        }
+        bytes memory res = new bytes(1);
+        res[0] = uint256(handle) != 0 ? bytes1(0x01) : bytes1(0x00);
         return res;
     }
 

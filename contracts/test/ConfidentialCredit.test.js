@@ -93,8 +93,8 @@ describe("Nox Private Credit — Real Aave V3 Comprehensive Suite", function () 
     });
   });
 
-  describe("3. Salary-Gated Borrowing (Issue 1 Gating Fix)", function () {
-    it("should borrow from Aave Pool upon successful salary underwriting", async function () {
+  describe("3. Strict 2-Transaction Salary-Gated Borrowing", function () {
+    it("should borrow from Aave Pool using two separate transactions (Tx 1: Evaluate, Tx 2: Execute)", async function () {
       const depositAmount = ethers.parseUnits("15000", 6);
       const borrowAmount = ethers.parseUnits("20000", 6);
 
@@ -107,12 +107,21 @@ describe("Nox Private Credit — Real Aave V3 Comprehensive Suite", function () 
         proof
       );
 
-      const balBefore = await mockUsdc.balanceOf(borrower.address);
-      await creditVault.connect(borrower)["requestBorrow(address,uint256,bytes32,bytes,bytes)"](
+      // Transaction 1: Standalone Evaluation
+      await creditVault.connect(borrower).evaluateBorrowEligibility(
         await mockUsdc.getAddress(),
         borrowAmount,
         mockBorrow,
-        proof,
+        proof
+      );
+      expect(await creditVault.isBorrowEligibilityEvaluated(borrower.address)).to.be.true;
+      expect(await creditVault.getEvaluatedBorrowAmount(borrower.address)).to.equal(borrowAmount);
+
+      // Transaction 2: Standalone Execution with TEE proof
+      const balBefore = await mockUsdc.balanceOf(borrower.address);
+      await creditVault.connect(borrower).requestBorrow(
+        await mockUsdc.getAddress(),
+        borrowAmount,
         proof
       );
 
@@ -122,9 +131,43 @@ describe("Nox Private Credit — Real Aave V3 Comprehensive Suite", function () 
       const vaultDebt = await mockAavePool.borrowed(await mockUsdc.getAddress(), await creditVault.getAddress());
       expect(vaultDebt).to.equal(borrowAmount);
       expect(await creditVault.getUserBorrowAmount(borrower.address)).to.equal(borrowAmount);
+      expect(await creditVault.isBorrowEligibilityEvaluated(borrower.address)).to.be.false; // Consumed
     });
 
-    it("should REVERT over-ceiling borrow request and transfer NO real Aave funds (Issue 1 Verification)", async function () {
+    it("should REVERT when Tx 2 requested amount does not match Tx 1 evaluated amount", async function () {
+      const depositAmount = ethers.parseUnits("15000", 6);
+      const evalAmount = ethers.parseUnits("10000", 6);
+      const higherRequestedAmount = ethers.parseUnits("50000", 6);
+      const evalHandle = ethers.zeroPadValue(ethers.toBeHex(10000), 32);
+
+      await incomeStream.connect(employer)["createStream(address,bytes32)"](borrower.address, mockIncomeRate);
+      await mockUsdc.connect(borrower).approve(await creditVault.getAddress(), depositAmount);
+      await creditVault.connect(borrower)["depositCollateral(address,uint256,bytes32,bytes)"](
+        await mockUsdc.getAddress(),
+        depositAmount,
+        mockCollateral,
+        proof
+      );
+
+      // Tx 1: Evaluate $10,000
+      await creditVault.connect(borrower).evaluateBorrowEligibility(
+        await mockUsdc.getAddress(),
+        evalAmount,
+        evalHandle,
+        proof
+      );
+
+      // Tx 2: Try to borrow $50,000 -> Reverts!
+      await expect(
+        creditVault.connect(borrower).requestBorrow(
+          await mockUsdc.getAddress(),
+          higherRequestedAmount,
+          proof
+        )
+      ).to.be.revertedWith("ConfidentialCredit: requested amount does not match evaluated amount");
+    });
+
+    it("should REVERT over-ceiling borrow request in Tx 2 and transfer NO real Aave funds", async function () {
       const depositAmount = ethers.parseUnits("15000", 6);
       const excessiveBorrowAmount = ethers.parseUnits("50000", 6); // $50,000 exceeds $30,000 ceiling
       const excessiveHandle = ethers.zeroPadValue(ethers.toBeHex(50000), 32);
@@ -138,26 +181,32 @@ describe("Nox Private Credit — Real Aave V3 Comprehensive Suite", function () 
         proof
       );
 
+      // Tx 1: Evaluate excessive amount
+      await creditVault.connect(borrower).evaluateBorrowEligibility(
+        await mockUsdc.getAddress(),
+        excessiveBorrowAmount,
+        excessiveHandle,
+        proof
+      );
+
       const balBefore = await mockUsdc.balanceOf(borrower.address);
 
+      // Tx 2: Attempt borrow -> Reverts!
       await expect(
-        creditVault.connect(borrower)["requestBorrow(address,uint256,bytes32,bytes,bytes)"](
+        creditVault.connect(borrower).requestBorrow(
           await mockUsdc.getAddress(),
           excessiveBorrowAmount,
-          excessiveHandle,
-          proof,
           proof
         )
       ).to.be.revertedWith("ConfidentialCredit: requested borrow exceeds salary eligibility ceiling");
 
-      // Verify NO real funds transferred and NO vault debt created
       const balAfter = await mockUsdc.balanceOf(borrower.address);
       expect(balAfter).to.equal(balBefore);
       expect(await mockAavePool.borrowed(await mockUsdc.getAddress(), await creditVault.getAddress())).to.equal(0);
       expect(await creditVault.getUserBorrowAmount(borrower.address)).to.equal(0);
     });
 
-    it("should revert borrow request if borrower has no active income stream", async function () {
+    it("should REVERT borrow request in Tx 2 if Tx 1 was not called first", async function () {
       const depositAmount = ethers.parseUnits("15000", 6);
       const borrowAmount = ethers.parseUnits("20000", 6);
 
@@ -170,18 +219,16 @@ describe("Nox Private Credit — Real Aave V3 Comprehensive Suite", function () 
       );
 
       await expect(
-        creditVault.connect(borrower)["requestBorrow(address,uint256,bytes32,bytes,bytes)"](
+        creditVault.connect(borrower).requestBorrow(
           await mockUsdc.getAddress(),
           borrowAmount,
-          mockBorrow,
-          proof,
           proof
         )
-      ).to.be.revertedWith("IncomeStream: no active stream for employee");
+      ).to.be.revertedWith("ConfidentialCredit: eligibility not yet evaluated");
     });
   });
 
-  describe("4. Repayment & Unwound Real Aave Liquidation (Issue 2 Fix)", function () {
+  describe("4. Repayment & Unwound Real Aave Liquidation", function () {
     it("should repay Aave debt through vault", async function () {
       const depositAmount = ethers.parseUnits("15000", 6);
       const borrowAmount = ethers.parseUnits("20000", 6);
@@ -195,13 +242,9 @@ describe("Nox Private Credit — Real Aave V3 Comprehensive Suite", function () 
         mockCollateral,
         proof
       );
-      await creditVault.connect(borrower)["requestBorrow(address,uint256,bytes32,bytes,bytes)"](
-        await mockUsdc.getAddress(),
-        borrowAmount,
-        mockBorrow,
-        proof,
-        proof
-      );
+
+      await creditVault.connect(borrower).evaluateBorrowEligibility(await mockUsdc.getAddress(), borrowAmount, mockBorrow, proof);
+      await creditVault.connect(borrower).requestBorrow(await mockUsdc.getAddress(), borrowAmount, proof);
 
       await mockUsdc.connect(borrower).approve(await creditVault.getAddress(), repayAmount);
       const repayHandle = ethers.zeroPadValue(ethers.toBeHex(5000), 32);
@@ -229,13 +272,9 @@ describe("Nox Private Credit — Real Aave V3 Comprehensive Suite", function () 
         mockCollateral,
         proof
       );
-      await creditVault.connect(borrower)["requestBorrow(address,uint256,bytes32,bytes,bytes)"](
-        await mockUsdc.getAddress(),
-        borrowAmount,
-        mockBorrow,
-        proof,
-        proof
-      );
+
+      await creditVault.connect(borrower).evaluateBorrowEligibility(await mockUsdc.getAddress(), borrowAmount, mockBorrow, proof);
+      await creditVault.connect(borrower).requestBorrow(await mockUsdc.getAddress(), borrowAmount, proof);
 
       await creditVault.checkAndLiquidate(borrower.address);
       const signal = await creditVault.getEncryptedLiquidationSignal(borrower.address);
@@ -254,13 +293,9 @@ describe("Nox Private Credit — Real Aave V3 Comprehensive Suite", function () 
         mockCollateral,
         proof
       );
-      await creditVault.connect(borrower)["requestBorrow(address,uint256,bytes32,bytes,bytes)"](
-        await mockUsdc.getAddress(),
-        borrowAmount,
-        mockBorrow,
-        proof,
-        proof
-      );
+
+      await creditVault.connect(borrower).evaluateBorrowEligibility(await mockUsdc.getAddress(), borrowAmount, mockBorrow, proof);
+      await creditVault.connect(borrower).requestBorrow(await mockUsdc.getAddress(), borrowAmount, proof);
 
       await creditVault.checkAndLiquidate(borrower.address);
 
@@ -269,7 +304,7 @@ describe("Nox Private Credit — Real Aave V3 Comprehensive Suite", function () 
       ).to.be.revertedWith("ConfidentialCredit: position is healthy and not liquidatable");
     });
 
-    it("should trigger liquidation AND unwind real Aave collateral/debt when position is underwater (Issue 2 Verification)", async function () {
+    it("should trigger liquidation AND unwind real Aave collateral/debt when position is underwater", async function () {
       const depositAmount = ethers.parseUnits("5000", 6);
       const borrowAmount = ethers.parseUnits("20000", 6);
       const lowCollateral = ethers.zeroPadValue(ethers.toBeHex(5000), 32);
@@ -283,26 +318,17 @@ describe("Nox Private Credit — Real Aave V3 Comprehensive Suite", function () 
         proof
       );
 
-      await creditVault.connect(borrower)["requestBorrow(address,uint256,bytes32,bytes,bytes)"](
-        await mockUsdc.getAddress(),
-        borrowAmount,
-        mockBorrow,
-        proof,
-        proof
-      );
+      // Borrow Call 1 ($20,000)
+      await creditVault.connect(borrower).evaluateBorrowEligibility(await mockUsdc.getAddress(), borrowAmount, mockBorrow, proof);
+      await creditVault.connect(borrower).requestBorrow(await mockUsdc.getAddress(), borrowAmount, proof);
 
-      await creditVault.connect(borrower)["requestBorrow(address,uint256,bytes32,bytes,bytes)"](
-        await mockUsdc.getAddress(),
-        borrowAmount,
-        mockBorrow,
-        proof,
-        proof
-      );
+      // Borrow Call 2 ($20,000 -> Total $40,000 debt vs $35,000 capacity)
+      await creditVault.connect(borrower).evaluateBorrowEligibility(await mockUsdc.getAddress(), borrowAmount, mockBorrow, proof);
+      await creditVault.connect(borrower).requestBorrow(await mockUsdc.getAddress(), borrowAmount, proof);
 
       await creditVault.checkAndLiquidate(borrower.address);
       await creditVault.connect(liquidator).liquidate(borrower.address, proof);
 
-      // Verify REAL Aave collateral was withdrawn, REAL Aave debt was repaid (reduced from $40k to $35k by $5k collateral), and private handles cleared
       expect(await mockAavePool.borrowed(await mockUsdc.getAddress(), await creditVault.getAddress())).to.equal(ethers.parseUnits("35000", 6));
       expect(await creditVault.getUserBorrowAmount(borrower.address)).to.equal(0);
       expect(await creditVault.getUserCollateralAmount(borrower.address)).to.equal(0);

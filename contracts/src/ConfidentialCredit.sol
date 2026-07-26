@@ -43,11 +43,15 @@ contract ConfidentialCredit is ReentrancyGuard {
     // SIGNET_LIQUIDATION_THRESHOLD_BPS is set to 7500 BPS (75.00% LTV; HF = 1.067 safety margin relative to Aave).
     uint256 public constant SIGNET_LIQUIDATION_THRESHOLD_BPS = 7500;
 
-    // Encrypted Position Handles
+    // Encrypted Position Handles & Evaluation State
     mapping(address => euint256) private _encryptedCollateral;
     mapping(address => euint256) private _encryptedBorrowBalance;
     mapping(address => ebool) private _encryptedLiquidationSignal;
     mapping(address => ebool) private _encryptedBorrowEligibility;
+    mapping(address => bool) private _borrowEligibilityEvaluated;
+    mapping(address => uint256) private _evaluatedBorrowAmount;
+    mapping(address => address) private _evaluatedBorrowAsset;
+    mapping(address => euint256) private _evaluatedBorrowHandle;
 
     // Plaintext Accounting for Aave Unwinding
     mapping(address => uint256) private _userCollateralAmount;
@@ -57,6 +61,7 @@ contract ConfidentialCredit is ReentrancyGuard {
 
     // Events
     event CollateralDeposited(address indexed borrower, address indexed asset, uint256 amount, euint256 encryptedCollateralHandle);
+    event BorrowEligibilityEvaluated(address indexed borrower, address indexed borrowAsset, uint256 requestedAmount, ebool isEligible);
     event BorrowRequested(address indexed borrower, address indexed asset, uint256 amount, euint256 encryptedBorrowHandle);
     event RepaymentMade(address indexed borrower, address indexed asset, uint256 amount, euint256 encryptedRepayHandle);
     event LiquidationEvaluated(address indexed borrower, ebool liquidationSignalHandle);
@@ -131,56 +136,63 @@ contract ConfidentialCredit is ReentrancyGuard {
     }
 
     /**
-     * @notice Evaluates TEE salary underwriting eligibility for a requested borrow amount
+     * @notice Transaction 1 (Borrow Flow) — Standalone TEE salary underwriting evaluation
      */
-    function evaluateBorrowEligibility(address borrower, euint256 requestedHandle) public returns (ebool) {
-        euint256 incomeRate = incomeStream.getIncomeRateHandle(borrower);
+    function evaluateBorrowEligibility(
+        address borrowAsset,
+        uint256 requestedAmount,
+        externalEuint256 externalRequestedAmount,
+        bytes calldata inputProof
+    ) public nonReentrant returns (ebool) {
+        require(requestedAmount > 0, "ConfidentialCredit: borrow amount must be > 0");
+        euint256 incomeRate = incomeStream.getIncomeRateHandle(msg.sender);
         require(Nox.isInitialized(incomeRate), "IncomeStream: no active stream for employee");
 
+        euint256 requestedHandle = Nox.fromExternal(externalRequestedAmount, inputProof);
         euint256 maxBorrow = Nox.mul(incomeRate, Nox.toEuint256(creditMultiplier));
         ebool isEligible = Nox.ge(maxBorrow, requestedHandle);
 
-        _encryptedBorrowEligibility[borrower] = isEligible;
+        _encryptedBorrowEligibility[msg.sender] = isEligible;
+        _borrowEligibilityEvaluated[msg.sender] = true;
+        _evaluatedBorrowAmount[msg.sender] = requestedAmount;
+        _evaluatedBorrowAsset[msg.sender] = borrowAsset;
+        _evaluatedBorrowHandle[msg.sender] = requestedHandle;
+
         Nox.allowPublicDecryption(isEligible);
+        emit BorrowEligibilityEvaluated(msg.sender, borrowAsset, requestedAmount, isEligible);
 
         return isEligible;
     }
 
     /**
-     * @notice Request confidential borrow position routed through Aave V3.
-     * Gated by TEE public decryption proof of salary eligibility (Issue 1 Fix).
+     * @notice Transaction 2 (Borrow Flow) — Standalone Aave borrow execution
+     * Verifies stored eligibility signal & amount matching before money movement.
      */
     function requestBorrow(
         address borrowAsset,
         uint256 requestedAmount,
-        externalEuint256 externalRequestedAmount,
-        bytes calldata inputProof,
         bytes calldata eligibilityProof
     ) external nonReentrant returns (euint256) {
-        euint256 requestedHandle = Nox.fromExternal(externalRequestedAmount, inputProof);
-        return _requestBorrowInternal(borrowAsset, requestedAmount, requestedHandle, eligibilityProof);
-    }
-
-    function _requestBorrowInternal(
-        address borrowAsset,
-        uint256 requestedAmount,
-        euint256 requestedHandle,
-        bytes calldata eligibilityProof
-    ) internal returns (euint256) {
         require(requestedAmount > 0, "ConfidentialCredit: borrow amount must be > 0");
+        require(_borrowEligibilityEvaluated[msg.sender], "ConfidentialCredit: eligibility not yet evaluated");
+        require(requestedAmount == _evaluatedBorrowAmount[msg.sender], "ConfidentialCredit: requested amount does not match evaluated amount");
+        require(borrowAsset == _evaluatedBorrowAsset[msg.sender], "ConfidentialCredit: requested asset does not match evaluated asset");
 
-        // 1. Evaluate TEE eligibility signal for requested amount handle
-        ebool signal = evaluateBorrowEligibility(msg.sender, requestedHandle);
-
-        // 2. Synchronous TEE public decryption of eligibility signal
+        // 1. Read stored TEE eligibility signal
+        ebool signal = _encryptedBorrowEligibility[msg.sender];
         bool isEligible = Nox.publicDecrypt(signal, eligibilityProof);
         require(isEligible, "ConfidentialCredit: requested borrow exceeds salary eligibility ceiling");
 
-        // 3. REAL Aave borrow & token transfer execute ONLY if isEligible == true
+        euint256 requestedHandle = _evaluatedBorrowHandle[msg.sender];
+
+        // Consume evaluation state
+        _borrowEligibilityEvaluated[msg.sender] = false;
+
+        // 2. REAL Aave borrow & token transfer execute ONLY if isEligible == true
         aavePool.borrow(borrowAsset, requestedAmount, 2, 0, address(this));
         IERC20(borrowAsset).transfer(msg.sender, requestedAmount);
 
-        // 4. Update plaintext tracking & encrypted handles
+        // 3. Update plaintext tracking & encrypted handles
         _userBorrowAmount[msg.sender] += requestedAmount;
         _userBorrowAsset[msg.sender] = borrowAsset;
 
@@ -325,6 +337,14 @@ contract ConfidentialCredit is ReentrancyGuard {
     }
 
     // View Methods
+    function isBorrowEligibilityEvaluated(address account) external view returns (bool) {
+        return _borrowEligibilityEvaluated[account];
+    }
+
+    function getEvaluatedBorrowAmount(address account) external view returns (uint256) {
+        return _evaluatedBorrowAmount[account];
+    }
+
     function getUserCollateralAmount(address borrower) external view returns (uint256) {
         return _userCollateralAmount[borrower];
     }

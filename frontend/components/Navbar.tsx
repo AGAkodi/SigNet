@@ -24,9 +24,11 @@ export const Navbar: React.FC<NavbarProps> = ({
           onClick={() => setActiveScreen(1)}
           className="flex items-center gap-3 cursor-pointer group shrink-0"
         >
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-patina-300 to-patina-500 flex items-center justify-center font-display font-bold text-mist-950 shadow-hair">
-            S
-          </div>
+          <img
+            src="/logo.png"
+            alt="SIGNET Logo"
+            className="w-8 h-8 rounded-full object-cover shadow-hair border border-patina-400/30 group-hover:border-patina-300 transition-colors"
+          />
           <div>
             <h1 className="font-display font-semibold text-base sm:text-lg text-halo-soft tracking-wide group-hover:text-patina-300 transition-colors">
               SIGNET

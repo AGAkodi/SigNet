@@ -4,7 +4,7 @@
 | --- | --- | --- | --- | --- |
 | `ERC7984CreditToken` | `0x8f9e846c7d13B11A2CA85ac71546b48D807E2971` | Arbitrum Sepolia | [Arbiscan](https://sepolia.arbiscan.io/address/0x8f9e846c7d13B11A2CA85ac71546b48D807E2971) | Base confidential credit token |
 | `IncomeStream` | `0x42ced25B9BCC2BffeA7F928738174Dbe46e7f7cf` | Arbitrum Sepolia | [Arbiscan](https://sepolia.arbiscan.io/address/0x42ced25B9BCC2BffeA7F928738174Dbe46e7f7cf) | Salary stream contract emitting encrypted handles |
-| `ConfidentialCredit` | `0x90AD18b14E447e1Fa63ed4aC041054212bB93Fe0` | Arbitrum Sepolia | [Arbiscan](https://sepolia.arbiscan.io/address/0x90AD18b14E447e1Fa63ed4aC041054212bB93Fe0) | Aave V3 Integrated Confidential Vault |
+| `ConfidentialCredit` | `0x5F602982CC47dd707FA90bd9Af5da66e5587757C` | Arbitrum Sepolia | [Arbiscan](https://sepolia.arbiscan.io/address/0x5F602982CC47dd707FA90bd9Af5da66e5587757C) | Aave V3 Integrated Confidential Vault |
 
 ## Verified Infrastructure References
 - **Aave V3 Pool:** `0xBfC91D59fdAA134A4ED45f7B584cAf96D7792Eff`
@@ -16,4 +16,4 @@
 - **Deployer Address:** `0x7530e58314e6519F204536B034296996A911Dd93`
 - **Chain ID:** 421614 (Arbitrum Sepolia)
 - **RPC Endpoint:** `https://sepolia-rollup.arbitrum.io/rpc`
-- **Deployment Timestamp:** `2026-07-27T16:55:28.320Z`
+- **Deployment Timestamp:** `2026-07-27T17:11:16.876Z`

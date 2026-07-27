@@ -1,7 +1,7 @@
 # SigNet — System Architecture & Design Specification
 
 ## 1. Overview & Core Mission
-**SigNet (Nox Private Credit)** is an institutional-grade, privacy-preserving credit layer built on Arbitrum Sepolia. It integrates directly with **Aave V3** liquidity pools while placing a **Nox TEE (Trusted Execution Environment)** private underwriting and credit-risk layer on top.
+**SIGNET** is an institutional-grade, privacy-preserving credit layer built on Arbitrum Sepolia. It integrates directly with **Aave V3** liquidity pools while placing a **Nox TEE (Trusted Execution Environment)** private underwriting and credit-risk layer on top.
 
 Neither the user's monthly salary rate nor their private loan entitlement position is exposed on-chain. All salary underwriting evaluations and internal credit health checks are computed confidentially via **Nox TEE** handles and ACL-scoped disclosures.
 

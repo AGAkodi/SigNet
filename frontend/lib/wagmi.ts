@@ -3,7 +3,7 @@ import { arbitrumSepolia } from 'wagmi/chains';
 import { http } from 'viem';
 
 export const config = getDefaultConfig({
-  appName: 'SigNet — Nox Private Credit',
+  appName: 'SIGNET',
   projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || '8a82ad2b534edb98db6452422d937440',
   chains: [arbitrumSepolia],
   transports: {

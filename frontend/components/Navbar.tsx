@@ -25,11 +25,11 @@ export const Navbar: React.FC<NavbarProps> = ({
           className="flex items-center gap-3 cursor-pointer group shrink-0"
         >
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-patina-300 to-patina-500 flex items-center justify-center font-display font-bold text-mist-950 shadow-hair">
-            N
+            S
           </div>
           <div>
             <h1 className="font-display font-semibold text-base sm:text-lg text-halo-soft tracking-wide group-hover:text-patina-300 transition-colors">
-              Nox Private Credit
+              SIGNET
             </h1>
             <span className="text-[11px] text-halo-deep font-mono hidden sm:block">
               Arbitrum Sepolia • TEE Verified

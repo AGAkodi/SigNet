@@ -1,4 +1,4 @@
-# SigNet (Nox Private Credit) — Integration Feedback & Friction Points
+# SIGNET — Integration Feedback & Friction Points
 
 This document tracks developer experience observations, architectural design decisions, and feedback hit during the implementation of **SigNet** on Arbitrum Sepolia.
 

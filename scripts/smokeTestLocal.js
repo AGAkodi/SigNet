@@ -1,7 +1,7 @@
 const hre = require("hardhat");
 
 async function main() {
-  console.log("=== Nox Private Credit Local Smoke Test ===");
+  console.log("=== SIGNET Local Smoke Test ===");
 
   const [owner, employer, borrower, liquidator] = await hre.ethers.getSigners();
 

@@ -3,7 +3,7 @@ import "./globals.css";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
-  title: "Nox Private Credit — Salary-backed Confidential Lending",
+  title: "SIGNET — Salary-backed Confidential Lending",
   description: "Private, TEE-verified income stream underwrites confidential Aave-style borrowing on Arbitrum Sepolia.",
 };
 

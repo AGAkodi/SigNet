@@ -159,7 +159,7 @@ export default function Home() {
       {/* Vault Footer */}
       <footer className="w-full border-t border-mist-700 py-6 px-6 text-center text-xs font-mono text-halo-deep">
         <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
-          <span>Nox Private Credit — Salary-Backed Confidential Lending</span>
+          <span>SIGNET — Salary-Backed Confidential Lending</span>
           <span>Arbitrum Sepolia (Chain ID 421614) • TEE Secured</span>
         </div>
       </footer>

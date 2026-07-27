@@ -1,6 +1,6 @@
-# SigNet (Nox Private Credit) — Comprehensive Technical Walkthrough
+# SIGNET — Comprehensive Technical Walkthrough
 
-This walkthrough documents the full architecture, pre-build verification steps, critical code review bug fixes, cryptographic safety proofs, and test suite verification for **SigNet** (Nox Private Credit Vault integrated with Aave V3 on Arbitrum Sepolia).
+This walkthrough documents the full architecture, pre-build verification steps, critical code review bug fixes, cryptographic safety proofs, and test suite verification for **SIGNET** (Vault integrated with Aave V3 on Arbitrum Sepolia).
 
 ---
 
@@ -128,7 +128,7 @@ Suite result: ok. 12 passed; 0 failed; 0 skipped; finished in 9.52ms
 
 ### 2. Hardhat Test Suite (`ConfidentialCredit.test.js`)
 ```text
-  Nox Private Credit — Real Aave V3 Comprehensive Suite
+  SIGNET — Real Aave V3 Comprehensive Suite
     1. Token Metadata & IncomeStream Lifecycle
       √ should initialize token metadata correctly (111ms)
       √ should create income stream, verify initial zero balance, and claim accrued salary after 30 days

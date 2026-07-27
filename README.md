@@ -1,4 +1,4 @@
-# Nox Private Credit (SigNet)
+# SIGNET
 
 Salary-backed confidential lending — a private, TEE-verified income stream underwrites a confidential borrowing position. Neither salary nor loan magnitude is exposed on-chain.
 

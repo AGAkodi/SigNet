@@ -1,7 +1,7 @@
-# Nox Private Credit — UI/UX Design System & Specification
+# SIGNET — UI/UX Design System & Specification
 
 ## 1. Design Thesis: "Quiet Confidence"
-Nox Private Credit is an institutional-grade vault for private, income-backed borrowing. The interface rejects typical "neon crypto casino" aesthetics and generic AI-template looks. It feels like a high-security private bank ledger—deliberate, restrained, and authoritative.
+SIGNET is an institutional-grade vault for private, income-backed borrowing. The interface rejects typical "neon crypto casino" aesthetics and generic AI-template looks. It feels like a high-security private bank ledger—deliberate, restrained, and authoritative.
 
 ---
 

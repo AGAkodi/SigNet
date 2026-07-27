@@ -1,7 +1,7 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 
-describe("Nox Private Credit — Real Aave V3 Comprehensive Suite", function () {
+describe("SIGNET — Real Aave V3 Comprehensive Suite", function () {
   let creditToken, incomeStream, creditVault, mockNox, mockAavePool, mockUsdc;
   let owner, employer, borrower, liquidator;
 

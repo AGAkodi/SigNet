@@ -1,4 +1,4 @@
-# Nox Private Credit — Project TODO
+# SIGNET — Project TODO
 
 **Project:** Salary-backed confidential lending — a private, TEE-verified income stream (Sablier/Superfluid-style) underwrites a confidential Aave-style borrow. Neither the salary nor the loan size is ever public; the protocol still verifies the borrower qualifies.
 

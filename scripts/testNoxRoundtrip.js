@@ -2,7 +2,7 @@ const { ethers } = require("hardhat");
 
 async function main() {
   console.log("=================================================================");
-  console.log("  NOX PRIVATE CREDIT — REAL NOX COMPUTATION ROUNDTRIP (LOCAL 31337) ");
+  console.log("  SIGNET — REAL NOX COMPUTATION ROUNDTRIP (LOCAL 31337) ");
   console.log("=================================================================\n");
 
   const [owner, employer, borrower, liquidator, auditor] = await ethers.getSigners();

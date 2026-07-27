@@ -14,7 +14,7 @@ const EXISTING_CREDIT_TOKEN = "0x8f9e846c7d13B11A2CA85ac71546b48D807E2971";
 
 async function main() {
   console.log("=================================================================");
-  console.log("  SIGNET (NOX PRIVATE CREDIT) — ARBITRUM SEPOLIA DEPLOYMENT     ");
+  console.log("  SIGNET — ARBITRUM SEPOLIA DEPLOYMENT     ");
   console.log("=================================================================\n");
 
   const [deployer] = await ethers.getSigners();

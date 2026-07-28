@@ -1,6 +1,6 @@
 const { ethers } = require("hardhat");
 
-const INCOME_STREAM = "0x94658D76467d322B5D5d77001126bE339DaF1AA9";
+const INCOME_STREAM = "0x113aDD5590eBde13cf5CF9e4Ef1036a834e90AF3";
 
 async function main() {
   console.log("=== Testing Direct Stream Creation on Arbitrum Sepolia ===");

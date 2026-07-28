@@ -1,8 +1,8 @@
 const { ethers } = require("hardhat");
 const { NoxClientSDK } = require("./noxClientSdk");
 
-const INCOME_STREAM = "0x94658D76467d322B5D5d77001126bE339DaF1AA9";
-const CONFIDENTIAL_CREDIT = "0x15A9cFA9CD1dF724063511171f5bE34C39654928";
+const INCOME_STREAM = "0x113aDD5590eBde13cf5CF9e4Ef1036a834e90AF3";
+const CONFIDENTIAL_CREDIT = "0x5ad0DD36848a37BDe2492D822d31A19186Ff7914";
 
 async function main() {
   console.log("=== Testing On-Chain Nox & IncomeStream State ===");

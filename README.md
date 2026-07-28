@@ -33,9 +33,9 @@ pnpm install
 
 | Contract | Address | Arbiscan |
 |---|---|---|
-| ERC7984CreditToken | 0x7B8902Ab7B59214b66876124710c39d0119a1bB6 | https://sepolia.arbiscan.io/address/0x7B8902Ab7B59214b66876124710c39d0119a1bB6 |
-| IncomeStream | 0x94658D76467d322B5D5d77001126bE339DaF1AA9 | https://sepolia.arbiscan.io/address/0x94658D76467d322B5D5d77001126bE339DaF1AA9 |
-| ConfidentialCredit | 0x15A9cFA9CD1dF724063511171f5bE34C39654928 | https://sepolia.arbiscan.io/address/0x15A9cFA9CD1dF724063511171f5bE34C39654928 |
+| ERC7984CreditToken | 0x6f5e52c71A88Ba8973061d3dCE5619EbA65B8Fb4 | https://sepolia.arbiscan.io/address/0x6f5e52c71A88Ba8973061d3dCE5619EbA65B8Fb4 |
+| IncomeStream | 0x113aDD5590eBde13cf5CF9e4Ef1036a834e90AF3 | https://sepolia.arbiscan.io/address/0x113aDD5590eBde13cf5CF9e4Ef1036a834e90AF3 |
+| ConfidentialCredit | 0x5ad0DD36848a37BDe2492D822d31A19186Ff7914 | https://sepolia.arbiscan.io/address/0x5ad0DD36848a37BDe2492D822d31A19186Ff7914 |
 
 ## License
 MIT

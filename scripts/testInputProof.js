@@ -2,7 +2,7 @@ const { ethers } = require("hardhat");
 const { NoxClientSDK } = require("./noxClientSdk");
 
 const NOX_COMPUTE = "0xd464B198f06756a1d00be223634b85E0a731c229";
-const CONFIDENTIAL_CREDIT = "0x5F602982CC47dd707FA90bd9Af5da66e5587757C";
+const CONFIDENTIAL_CREDIT = "0x15A9cFA9CD1dF724063511171f5bE34C39654928";
 
 async function main() {
   console.log("=== Testing Input Proof on NoxCompute Arbitrum Sepolia ===");

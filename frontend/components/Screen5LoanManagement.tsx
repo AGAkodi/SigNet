@@ -5,13 +5,15 @@ import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from 
 import { WaxSealValue } from "./WaxSealValue";
 import { noxSdk } from "../lib/noxSdk";
 
+import { CONTRACT_ADDRESSES } from "../lib/contracts";
+
 interface Screen5LoanManagementProps {
   userAddress: string;
   activeBorrow: number;
   onRepayExecuted: (amount: number) => void;
 }
 
-const CONFIDENTIAL_CREDIT_ADDRESS = "0xECA515C29Eb3FD70cCdA5c8E2602a9094C137A65";
+const CONFIDENTIAL_CREDIT_ADDRESS = CONTRACT_ADDRESSES.ConfidentialCredit;
 
 const CONFIDENTIAL_CREDIT_ABI = [
   {

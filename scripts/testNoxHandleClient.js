@@ -1,7 +1,7 @@
 const { ethers } = require("hardhat");
 const { createEthersHandleClient } = require("@iexec-nox/handle");
 
-const CONFIDENTIAL_CREDIT = "0x5F602982CC47dd707FA90bd9Af5da66e5587757C";
+const CONFIDENTIAL_CREDIT = "0x15A9cFA9CD1dF724063511171f5bE34C39654928";
 
 async function main() {
   console.log("=== Testing Real iExec Nox Handle SDK Client on Arbitrum Sepolia ===");

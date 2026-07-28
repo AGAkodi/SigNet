@@ -1,7 +1,7 @@
 const { ethers } = require("hardhat");
 
 async function main() {
-  const tokenAddress = "0x8f9e846c7d13B11A2CA85ac71546b48D807E2971";
+  const tokenAddress = "0x7B8902Ab7B59214b66876124710c39d0119a1bB6";
   const expectedVault = "0xECA515C29Eb3FD70cCdA5c8E2602a9094C137A65";
   const txHash = "0x939448cb2c5a11803e1ec98ef4b73f77151febfe14651079d1db6d1afcdb91a2";
 

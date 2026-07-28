@@ -5,12 +5,14 @@ import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { WaxSealValue } from "./WaxSealValue";
 import { noxSdk, EncryptedInputResult } from "../lib/noxSdk";
 
+import { CONTRACT_ADDRESSES } from "../lib/contracts";
+
 interface Screen2StreamSetupProps {
   userAddress: string;
   onStreamCreated: (streamData: { employer: string; monthlyRate: number; handle: string }) => void;
 }
 
-const INCOME_STREAM_ADDRESS = "0x42ced25B9BCC2BffeA7F928738174Dbe46e7f7cf";
+const INCOME_STREAM_ADDRESS = CONTRACT_ADDRESSES.IncomeStream;
 
 const INCOME_STREAM_ABI = [
   {

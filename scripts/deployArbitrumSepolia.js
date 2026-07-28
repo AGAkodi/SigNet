@@ -9,8 +9,8 @@ const USDC_ARBITRUM_SEPOLIA = "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d";
 const WETH_ARBITRUM_SEPOLIA = "0x1dF462e2712496373A347f8ad10802a5E95f053D";
 
 // Existing deployed contract addresses on Arbitrum Sepolia (Unchanged contracts)
-const EXISTING_INCOME_STREAM = "0x42ced25B9BCC2BffeA7F928738174Dbe46e7f7cf";
-const EXISTING_CREDIT_TOKEN = "0x8f9e846c7d13B11A2CA85ac71546b48D807E2971";
+const EXISTING_INCOME_STREAM = "0x94658D76467d322B5D5d77001126bE339DaF1AA9";
+const EXISTING_CREDIT_TOKEN = "0x7B8902Ab7B59214b66876124710c39d0119a1bB6";
 
 async function main() {
   console.log("=================================================================");

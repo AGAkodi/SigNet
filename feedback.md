@@ -83,3 +83,33 @@ A fundamental insight from building SigNet is the **architectural boundary betwe
 - **Client-Side Handle Commitments**: `noxSdk.ts` implements client-side cryptographic handle commitments (Keccak256 over raw value, random 256-bit salt, user address, and domain tag) to shield sensitive salary numbers from being leaked as hex strings in Arbiscan calldata.
 - **Documentation Gaps**: The Nox SDK documentation would benefit from adding explicit sequence diagrams illustrating the 2-transaction public decryption workflow to help protocol developers avoid the single-transaction anti-pattern.
 
+---
+
+## 8. Lesson 1 — Transient vs. Persistent ACL Access Across Multi-Transaction Flows
+
+In Nox's asynchronous TEE proof model, workflows requiring public decryption of intermediate results (such as salary eligibility evaluation) are split across two separate transactions (Transaction 1: `evaluateBorrowEligibility`, Transaction 2: `requestBorrow`). 
+
+During live integration on Arbitrum Sepolia, we discovered a subtle ACL boundary condition:
+- **The Issue**: In Transaction 1 (`evaluateBorrowEligibility`), `requestedHandle` was created via `Nox.fromExternal(externalRequestedAmount, inputProof)` and evaluated against `maxBorrow`. `validateInputProof` granted `ConfidentialCredit` transient ACL access to `requestedHandle` for the duration of Transaction 1. However, when Transaction 1 finalized, this transient access expired. In Transaction 2 (`requestBorrow`), when the vault attempted to update `_encryptedBorrowBalance[msg.sender]` using `requestedHandle`, the `NoxCompute` coprocessor threw `UnauthorizedSender(address)` (`0x3fcc3f17`) because the contract no longer possessed persistent access to `requestedHandle`.
+- **The Fix**: In `evaluateBorrowEligibility`, we added an explicit persistent permission grant: `Nox.allowThis(requestedHandle);`. This persisted the vault's access right into state storage across transaction boundaries.
+- **Protocol Documentation Recommendation**: Nox's documentation and SDK guides should explicitly highlight that handles created or received in Transaction 1 require persistent grants (`Nox.allowThis(handle)`) if they are to be consumed or stored in state by the contract during Transaction 2.
+
+---
+
+## 9. Lesson 2 — Handle Initialization Ordering & Cross-Contract ACL Delegation
+
+During contract implementation and testing of `ERC7984CreditToken.sol` and `ConfidentialCredit.sol`, two related handle management bugs surfaced:
+
+1. **Uninitialized Supply Handles & `NonArithmeticType` Reverts**:
+   - **Bug**: Initializing a total-supply handle in constructor logic via `$._totalSupply = Nox.toEuint256(0);` created a public handle. When the first collateral deposit occurred, calling `Nox.add(_totalSupply, amountHandle)` caused the `NoxCompute` coprocessor to revert with `NonArithmeticType()` (`0xf645eedf`) because arithmetic type validation failed on the pre-initialized zero handle.
+   - **Fix**: Left `_totalSupply` uninitialized (`bytes32(0)`). The initial mint directly assigns `_totalSupply = amountHandle`, avoiding zero-handle addition.
+
+2. **Cross-Contract Handle Delegation & `NotAllowed` Reverts**:
+   - **Bug**: In `repay()`, `ConfidentialCredit` executed `creditToken.burnEncrypted(msg.sender, actualRepaidHandle)`. Inside `burnEncrypted`, the token contract called `Nox.burn(balanceFrom, amount, totalSupply)`. The transaction reverted with `NotAllowed(handle, creditToken)` (`0xb87a12a9`) because `ConfidentialCredit` had called `Nox.allowThis(actualRepaidHandle)` (granting access to the vault) but failed to grant transient access to the token contract.
+   - **Fix**: Added `Nox.allowTransient(actualRepaidHandle, address(creditToken));` prior to invoking `creditToken.burnEncrypted(...)`.
+- **Protocol Documentation Recommendation**: The Nox SDK docs would benefit immensely from a cheat-sheet matrix detailing which ACL primitive (`Nox.allow`, `Nox.allowThis`, `Nox.allowTransient`, `Nox.allowPublicDecryption`) is required for each specific pattern:
+  - **Same-Contract Operations**: `Nox.allowThis(handle)`
+  - **Cross-Contract Delegation (Vault → Token)**: `Nox.allowTransient(handle, targetContract)`
+  - **Multi-Transaction Persistence (Tx 1 → Tx 2)**: `Nox.allowThis(handle)` prior to storage
+  - **Public Signal Emission**: `Nox.allowPublicDecryption(handle)`
+

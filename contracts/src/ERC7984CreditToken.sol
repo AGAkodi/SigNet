@@ -31,8 +31,6 @@ contract ERC7984CreditToken is ERC7984 {
         string memory contractURI_
     ) ERC7984(name_, symbol_, contractURI_) {
         owner = msg.sender;
-        ERC7984Storage storage $ = _getERC7984Storage();
-        $._totalSupply = Nox.toEuint256(0);
     }
 
     function setCreditVault(address _vault) external onlyOwner {

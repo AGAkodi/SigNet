@@ -1,7 +1,7 @@
 const { ethers } = require("hardhat");
 
-const CREDIT_TOKEN = "0x8f9e846c7d13B11A2CA85ac71546b48D807E2971";
-const TARGET_VAULT = "0x5F602982CC47dd707FA90bd9Af5da66e5587757C";
+const CREDIT_TOKEN = "0x7B8902Ab7B59214b66876124710c39d0119a1bB6";
+const TARGET_VAULT = "0x15A9cFA9CD1dF724063511171f5bE34C39654928";
 
 async function main() {
   const [deployer] = await ethers.getSigners();

@@ -1,34 +1,36 @@
 const { ethers } = require("hardhat");
 
 async function main() {
-  const errors = [
-    "InvalidZeroAddress()",
-    "InvalidEmptyBytes()",
-    "UnauthorizedSender(address)",
-    "NotAllowed(bytes32,address)",
-    "InvalidProof(bytes,string)",
-    "UnsupportedType()",
-    "IncompatibleTypes()",
-    "NotPubliclyDecryptable(bytes32)",
-    "PublicHandleACLForbidden()",
-    "UndefinedHandle()",
-    "NonArithmeticType()",
-    "UnsupportedArithmeticType()",
-    "MalformedDecryptedData(bytes)",
-    "SafeERC20FailedOperation(address)",
-    "ERC20InsufficientBalance(address,uint256,uint256)",
-    "ERC20InsufficientAllowance(address,uint256,uint256)",
-    "ReentrancyGuardReentrantCall()",
+  const target = "0x84a73f36";
+  const commonErrors = [
+    "TransferFailed()",
+    "InvalidAsset()",
+    "InsufficientAllowance()",
+    "InsufficientBalance()",
+    "InvalidAmount()",
+    "AmountMismatch()",
+    "ProofMismatch()",
+    "OwnerMismatch()",
+    "AppMismatch()",
+    "VaultMismatch()",
+    "NotVault()",
+    "OnlyVault()",
+    "InvalidVault()",
+    "AlreadyInitialized()",
+    "NotInitialized()",
+    "StreamNotFound()",
+    "NoActiveStream()",
   ];
 
-  console.log("Looking for selector 0xf645eedf:");
-  for (const err of errors) {
+  for (const err of commonErrors) {
     const sel = ethers.id(err).slice(0, 10);
-    console.log(`  ${sel} -> ${err}`);
-    if (sel === "0xf645eedf") {
-      console.log(`★★★ MATCH FOUND: ${err} ★★★`);
+    if (sel === target) {
+      console.log(`\n★★★ MATCH FOUND: ${err} -> ${sel} ★★★\n`);
     }
   }
+
+  // Also check standard OpenZeppelin / Ethers errors
+  console.log("Finished check.");
 }
 
 main().catch(console.error);

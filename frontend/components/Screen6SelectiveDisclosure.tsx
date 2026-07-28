@@ -11,12 +11,14 @@ interface AccessGrant {
   handle: string;
 }
 
+import { CONTRACT_ADDRESSES } from "../lib/contracts";
+
 interface Screen6SelectiveDisclosureProps {
   userAddress: string;
   streamHandle: string;
 }
 
-const NOX_COMPUTE_ADDRESS = "0x39847AeBa923Cc7367d4684194091D022B3F8548";
+const NOX_COMPUTE_ADDRESS = CONTRACT_ADDRESSES.NoxCompute;
 
 const NOX_COMPUTE_ACL_ABI = [
   {

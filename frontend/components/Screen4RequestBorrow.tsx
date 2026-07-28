@@ -5,13 +5,15 @@ import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { WaxSealValue } from "./WaxSealValue";
 import { noxSdk, EncryptedInputResult } from "../lib/noxSdk";
 
+import { CONTRACT_ADDRESSES } from "../lib/contracts";
+
 interface Screen4RequestBorrowProps {
   userAddress: string;
   monthlyIncome: number;
   onBorrowApproved: (amount: number) => void;
 }
 
-const CONFIDENTIAL_CREDIT_ADDRESS = "0xECA515C29Eb3FD70cCdA5c8E2602a9094C137A65";
+const CONFIDENTIAL_CREDIT_ADDRESS = CONTRACT_ADDRESSES.ConfidentialCredit;
 const USDC_ARBITRUM_SEPOLIA = "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d";
 
 const CONFIDENTIAL_CREDIT_ABI = [

@@ -1,7 +1,7 @@
 const { ethers } = require("hardhat");
 const { NoxClientSDK } = require("./noxClientSdk");
 
-const INCOME_STREAM = "0x42ced25B9BCC2BffeA7F928738174Dbe46e7f7cf";
+const INCOME_STREAM = "0x94658D76467d322B5D5d77001126bE339DaF1AA9";
 
 async function main() {
   console.log("=== Testing Stream Creation on Arbitrum Sepolia ===");

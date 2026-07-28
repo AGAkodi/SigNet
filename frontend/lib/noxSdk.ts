@@ -33,9 +33,11 @@ export interface PublicDecryptResult {
   isPublic: boolean;
 }
 
+import { CONTRACT_ADDRESSES } from "./contracts";
+
 export class NoxFrontendSDK {
-  // Arbitrum Sepolia: 0xd464B198f06756a1d00be223634b85E0a731c229 | Local 31337: 0x39847AeBa923Cc7367d4684194091D022B3F8548
-  private noxComputeAddress = "0x39847AeBa923Cc7367d4684194091D022B3F8548";
+  // Arbitrum Sepolia: 0xd464B198f06756a1d00be223634b85E0a731c229
+  private noxComputeAddress = CONTRACT_ADDRESSES.NoxCompute;
   private handleStore = new Map<string, string>();
 
   /**
@@ -58,7 +60,7 @@ export class NoxFrontendSDK {
         const { handle, handleProof } = await handleClient.encryptInput(
           rawVal,
           "uint256",
-          contractAddress
+          contractAddress as `0x${string}`
         );
         this.handleStore.set(handle.toLowerCase(), rawVal.toString());
 

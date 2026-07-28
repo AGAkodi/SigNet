@@ -40,19 +40,41 @@ export class NoxFrontendSDK {
 
   /**
    * Client-side cryptographic handle generation.
-   * Generates a non-reversible salted cryptographic handle commitment for on-chain submission,
-   * protecting salary figures from being read in plaintext on Arbiscan calldata.
+   * Calls real Nox KMS Gateway (https://gateway-testnets.noxprotocol.dev) via @iexec-nox/handle SDK
+   * to get real 137-byte TEE input proofs verifiable by on-chain Nox protocol smart contracts.
    */
   async encryptInput(
     value: number | bigint | string,
     contractAddress: string,
-    userAddress: string
+    userAddress: string,
+    signer?: ethers.Signer
   ): Promise<EncryptedInputResult> {
     const rawVal = BigInt(value);
-    const salt = ethers.hexlify(ethers.randomBytes(32));
 
-    // Cryptographic salted commitment (Keccak256 over value + salt + userAddress + domain separator)
-    // Ensures on-chain bytes32 handle is non-reversible and does not reveal plaintext salary
+    if (signer) {
+      try {
+        const { createEthersHandleClient } = await import("@iexec-nox/handle");
+        const handleClient = await createEthersHandleClient(signer as any);
+        const { handle, handleProof } = await handleClient.encryptInput(
+          rawVal,
+          "uint256",
+          contractAddress
+        );
+        this.handleStore.set(handle.toLowerCase(), rawVal.toString());
+
+        return {
+          value: rawVal.toString(),
+          encryptedHandle: handle,
+          proof: handleProof,
+          salt: "0x00",
+          isStubbed: false, // Live iExec Nox TEE KMS Gateway Proof
+        };
+      } catch (err) {
+        console.warn("Live Nox Gateway request failed, using cryptographic fallback:", err);
+      }
+    }
+
+    const salt = ethers.hexlify(ethers.randomBytes(32));
     const encryptedHandle = ethers.keccak256(
       ethers.solidityPacked(
         ["uint256", "bytes32", "address", "string"],
@@ -60,7 +82,7 @@ export class NoxFrontendSDK {
       )
     );
 
-    const proof = ethers.hexlify(ethers.randomBytes(65)); // 65-byte EIP-712 proof signature format
+    const proof = ethers.hexlify(ethers.randomBytes(65));
     this.handleStore.set(encryptedHandle.toLowerCase(), rawVal.toString());
 
     return {
@@ -68,7 +90,7 @@ export class NoxFrontendSDK {
       encryptedHandle,
       proof,
       salt,
-      isStubbed: true, // Flagged: Client-side cryptographic salted handle commitment (offline TEE mode)
+      isStubbed: true,
     };
   }
 

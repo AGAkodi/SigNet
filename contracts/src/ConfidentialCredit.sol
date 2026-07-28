@@ -100,31 +100,32 @@ contract ConfidentialCredit is ReentrancyGuard {
         externalEuint256 externalAmount,
         bytes calldata proof
     ) external nonReentrant returns (euint256) {
-        euint256 amountHandle = Nox.fromExternal(externalAmount, proof);
-        return _depositCollateralInternal(asset, amount, amountHandle);
-    }
-
-    function _depositCollateralInternal(
-        address asset,
-        uint256 amount,
-        euint256 amountHandle
-    ) internal returns (euint256) {
         require(amount > 0, "ConfidentialCredit: deposit amount must be > 0");
 
-        // 1. Receive ERC20 collateral from user
+        // 1. Convert external encrypted amount & proof into authenticated TEE handle
+        euint256 amountHandle = Nox.fromExternal(externalAmount, proof);
+
+        // 2. Grant persistent permission to creditToken
+        Nox.allow(amountHandle, address(creditToken));
+
+        // 3. Receive ERC20 collateral from user
         IERC20(asset).transferFrom(msg.sender, address(this), amount);
 
-        // 2. Approve Aave Pool and supply collateral
+        // 4. Approve Aave Pool and supply collateral
         IERC20(asset).approve(address(aavePool), amount);
         aavePool.supply(asset, amount, address(this), 0);
 
-        // 3. Track real accounting for liquidation unwinding
+        // 5. Track real accounting for liquidation unwinding
         _userCollateralAmount[msg.sender] += amount;
         _userCollateralAsset[msg.sender] = asset;
 
-        // 4. Update encrypted collateral handles & mint confidential entitlement token
-        euint256 updatedCollateral = Nox.add(_encryptedCollateral[msg.sender], amountHandle);
+        // 6. Update encrypted collateral handles & mint confidential entitlement token
+        euint256 currentCollateral = _encryptedCollateral[msg.sender];
+        euint256 updatedCollateral = Nox.isInitialized(currentCollateral)
+            ? Nox.add(currentCollateral, amountHandle)
+            : amountHandle;
         _encryptedCollateral[msg.sender] = updatedCollateral;
+
         creditToken.mintEncrypted(msg.sender, amountHandle);
 
         Nox.allow(updatedCollateral, msg.sender);
@@ -196,7 +197,10 @@ contract ConfidentialCredit is ReentrancyGuard {
         _userBorrowAmount[msg.sender] += requestedAmount;
         _userBorrowAsset[msg.sender] = borrowAsset;
 
-        euint256 updatedBorrow = Nox.add(_encryptedBorrowBalance[msg.sender], requestedHandle);
+        euint256 currentBorrow = _encryptedBorrowBalance[msg.sender];
+        euint256 updatedBorrow = Nox.isInitialized(currentBorrow)
+            ? Nox.add(currentBorrow, requestedHandle)
+            : requestedHandle;
         _encryptedBorrowBalance[msg.sender] = updatedBorrow;
 
         Nox.allow(updatedBorrow, msg.sender);
@@ -247,6 +251,7 @@ contract ConfidentialCredit is ReentrancyGuard {
         _encryptedBorrowBalance[msg.sender] = Nox.select(success, newBalance, currentBorrow);
 
         euint256 actualRepaidHandle = Nox.select(success, repayHandle, Nox.toEuint256(0));
+        Nox.allow(actualRepaidHandle, address(creditToken));
         creditToken.burnEncrypted(msg.sender, actualRepaidHandle);
 
         Nox.allow(_encryptedBorrowBalance[msg.sender], msg.sender);

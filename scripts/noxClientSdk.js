@@ -14,7 +14,7 @@ class NoxClientSDK {
     this.chainConfig = {
       chainId: 421614,
       networkName: "Arbitrum Sepolia",
-      teeCoprocessorAddress: "0x1ExEC000000000000000000000000000000000FF",
+      teeCoprocessorAddress: "0xd464B198f06756a1d00be223634b85E0a731c229",
     };
   }
 

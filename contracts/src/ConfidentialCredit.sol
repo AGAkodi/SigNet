@@ -105,9 +105,8 @@ contract ConfidentialCredit is ReentrancyGuard {
         // 1. Convert external encrypted amount & proof into authenticated TEE handle
         euint256 amountHandle = Nox.fromExternal(externalAmount, proof);
 
-        // 2. Grant permission to vault and creditToken
-        Nox.allowThis(amountHandle);
-        Nox.allowTransient(amountHandle, address(creditToken));
+        // 2. Grant persistent permission to creditToken
+        Nox.allow(amountHandle, address(creditToken));
 
         // 3. Receive ERC20 collateral from user
         IERC20(asset).transferFrom(msg.sender, address(this), amount);
@@ -160,8 +159,6 @@ contract ConfidentialCredit is ReentrancyGuard {
         _evaluatedBorrowAsset[msg.sender] = borrowAsset;
         _evaluatedBorrowHandle[msg.sender] = requestedHandle;
 
-        Nox.allowThis(isEligible);
-        Nox.allowThis(requestedHandle);
         Nox.allowPublicDecryption(isEligible);
         emit BorrowEligibilityEvaluated(msg.sender, borrowAsset, requestedAmount, isEligible);
 
@@ -205,6 +202,9 @@ contract ConfidentialCredit is ReentrancyGuard {
             ? Nox.add(currentBorrow, requestedHandle)
             : requestedHandle;
         _encryptedBorrowBalance[msg.sender] = updatedBorrow;
+
+        Nox.allow(updatedBorrow, msg.sender);
+        Nox.allowThis(updatedBorrow);
 
         emit BorrowRequested(msg.sender, borrowAsset, requestedAmount, requestedHandle);
         _autoCheckLiquidation(msg.sender);
@@ -251,10 +251,10 @@ contract ConfidentialCredit is ReentrancyGuard {
         _encryptedBorrowBalance[msg.sender] = Nox.select(success, newBalance, currentBorrow);
 
         euint256 actualRepaidHandle = Nox.select(success, repayHandle, Nox.toEuint256(0));
-        Nox.allowThis(actualRepaidHandle);
-        Nox.allowTransient(actualRepaidHandle, address(creditToken));
+        Nox.allow(actualRepaidHandle, address(creditToken));
         creditToken.burnEncrypted(msg.sender, actualRepaidHandle);
 
+        Nox.allow(_encryptedBorrowBalance[msg.sender], msg.sender);
         Nox.allowThis(_encryptedBorrowBalance[msg.sender]);
 
         emit RepaymentMade(msg.sender, borrowAsset, repayAmount, actualRepaidHandle);

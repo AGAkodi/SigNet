@@ -52,6 +52,8 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
   const [requestedAmount, setRequestedAmount] = useState(Math.min(15000, maxLimit));
   const [encResult, setEncResult] = useState<EncryptedInputResult | null>(null);
   const [step, setStep] = useState<1 | 2>(1);
+  const [localErrorEval, setLocalErrorEval] = useState<string | null>(null);
+  const [localErrorBorrow, setLocalErrorBorrow] = useState<string | null>(null);
 
   const { writeContract: writeEval, data: hashEval, isPending: isWritingEval, error: writeErrorEval } = useWriteContract();
   const { isLoading: isConfirmingEval, isSuccess: isConfirmedEval } = useWaitForTransactionReceipt({ hash: hashEval });
@@ -104,11 +106,43 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
       alert("Please connect your wallet first to submit a confidential borrow request.");
       return;
     }
+    setLocalErrorEval(null);
+    setLocalErrorBorrow(null);
     try {
       const res = await noxSdk.encryptInput(requestedAmount, CONFIDENTIAL_CREDIT_ADDRESS, userAddress);
       setEncResult(res);
+      console.log("Nox encryption result stubbed status:", res.isStubbed);
 
       const feeData = await getBufferedFeeData();
+
+      // Pre-flight contract simulation
+      if (publicClient) {
+        try {
+          console.log("Simulating evaluateBorrowEligibility call...");
+          await publicClient.simulateContract({
+            account: userAddress as `0x${string}`,
+            address: CONFIDENTIAL_CREDIT_ADDRESS,
+            abi: CONFIDENTIAL_CREDIT_ABI,
+            functionName: "evaluateBorrowEligibility",
+            args: [
+              USDC_ARBITRUM_SEPOLIA,
+              BigInt(requestedAmount),
+              res.encryptedHandle as `0x${string}`,
+              res.proof as `0x${string}`,
+            ],
+            ...feeData,
+          });
+          console.log("evaluateBorrowEligibility simulation succeeded.");
+        } catch (simError: any) {
+          console.error("Simulation failed for evaluateBorrowEligibility:", simError);
+          let parsed = parseTxError(simError);
+          if (res.isStubbed) {
+            parsed = `${parsed} (Using unverified local proof — Nox Gateway may be unreachable)`;
+          }
+          setLocalErrorEval(parsed);
+          return; // Block call from sending to wallet
+        }
+      }
 
       writeEval({
         address: CONFIDENTIAL_CREDIT_ADDRESS,
@@ -124,10 +158,13 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
       });
     } catch (err) {
       console.error("Evaluation Error:", err);
+      setLocalErrorEval(parseTxError(err));
     }
   };
 
   const handleStep2ExecuteBorrow = async () => {
+    setLocalErrorEval(null);
+    setLocalErrorBorrow(null);
     try {
       if (!publicClient || !userAddress) return;
 
@@ -147,6 +184,29 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
 
       const feeData = await getBufferedFeeData();
 
+      // Pre-flight contract simulation
+      try {
+        console.log("Simulating requestBorrow call...");
+        await publicClient.simulateContract({
+          account: userAddress as `0x${string}`,
+          address: CONFIDENTIAL_CREDIT_ADDRESS,
+          abi: CONFIDENTIAL_CREDIT_ABI,
+          functionName: "requestBorrow",
+          args: [
+            USDC_ARBITRUM_SEPOLIA,
+            BigInt(requestedAmount),
+            eligibilityProof as `0x${string}`,
+          ],
+          ...feeData,
+        });
+        console.log("requestBorrow simulation succeeded.");
+      } catch (simError: any) {
+        console.error("Simulation failed for requestBorrow:", simError);
+        const parsed = parseTxError(simError);
+        setLocalErrorBorrow(parsed);
+        return; // Block call from sending to wallet
+      }
+
       writeBorrow({
         address: CONFIDENTIAL_CREDIT_ADDRESS,
         abi: CONFIDENTIAL_CREDIT_ABI,
@@ -160,6 +220,7 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
       });
     } catch (err) {
       console.error("Borrow Execution Error:", err);
+      setLocalErrorBorrow(parseTxError(err));
     }
   };
 
@@ -251,11 +312,11 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
             </div>
           )}
 
-          {(writeErrorEval || writeErrorBorrow) && (
+          {(localErrorEval || localErrorBorrow || writeErrorEval || writeErrorBorrow) && (
             <div className="p-4 bg-danger-soft border border-danger-border rounded-xl text-xs font-mono text-danger space-y-1">
               <div className="font-semibold">⚠️ Transaction Error</div>
               <p className="text-[11px] opacity-90 break-words">
-                {parseTxError(writeErrorEval || writeErrorBorrow)}
+                {parseTxError(localErrorEval || localErrorBorrow || writeErrorEval || writeErrorBorrow)}
               </p>
             </div>
           )}

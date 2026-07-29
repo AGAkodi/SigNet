@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useWriteContract, useWaitForTransactionReceipt, usePublicClient } from "wagmi";
 import { useBufferedFees, parseTxError } from "../lib/errorHelper";
 
 interface AccessGrant {
@@ -56,6 +56,8 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
 
   const { writeContract, data: hash, isPending: isWriting, error: writeError, reset } = useWriteContract();
   const { getBufferedFeeData } = useBufferedFees();
+  const [localError, setLocalError] = useState<string | null>(null);
+  const publicClient = usePublicClient();
 
   const { isLoading: isConfirming, isSuccess: isConfirmed, error: receiptError } =
     useWaitForTransactionReceipt({
@@ -99,10 +101,32 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
     }
 
     reset();
+    setLocalError(null);
     setActiveAction("GRANT");
 
     try {
       const feeData = await getBufferedFeeData();
+
+      // Pre-flight contract simulation
+      if (publicClient) {
+        try {
+          console.log("Simulating allow call on NoxCompute...");
+          await publicClient.simulateContract({
+            account: userAddress as `0x${string}`,
+            address: NOX_COMPUTE_ADDRESS,
+            abi: NOX_COMPUTE_ACL_ABI,
+            functionName: "allow",
+            args: [targetHandle as `0x${string}`, auditorAddress as `0x${string}`],
+            ...feeData,
+          });
+          console.log("allow simulation succeeded.");
+        } catch (simError: any) {
+          console.error("Simulation failed for allow:", simError);
+          const parsed = parseTxError(simError);
+          setLocalError(parsed);
+          return; // Block call from sending to wallet
+        }
+      }
 
       writeContract({
         address: NOX_COMPUTE_ADDRESS,
@@ -113,6 +137,7 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
       });
     } catch (err) {
       console.error("Grant Access Error:", err);
+      setLocalError(parseTxError(err));
     }
   };
 
@@ -123,11 +148,33 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
     }
 
     reset();
+    setLocalError(null);
     setActiveAction("REVOKE");
     setPendingRevokeId(grant.id);
 
     try {
       const feeData = await getBufferedFeeData();
+
+      // Pre-flight contract simulation
+      if (publicClient) {
+        try {
+          console.log("Simulating disallowTransient call on NoxCompute...");
+          await publicClient.simulateContract({
+            account: userAddress as `0x${string}`,
+            address: NOX_COMPUTE_ADDRESS,
+            abi: NOX_COMPUTE_ACL_ABI,
+            functionName: "disallowTransient",
+            args: [targetHandle as `0x${string}`, grant.auditorAddress as `0x${string}`],
+            ...feeData,
+          });
+          console.log("disallowTransient simulation succeeded.");
+        } catch (simError: any) {
+          console.error("Simulation failed for disallowTransient:", simError);
+          const parsed = parseTxError(simError);
+          setLocalError(parsed);
+          return; // Block call from sending to wallet
+        }
+      }
 
       writeContract({
         address: NOX_COMPUTE_ADDRESS,
@@ -138,6 +185,7 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
       });
     } catch (err) {
       console.error("Revoke Access Error:", err);
+      setLocalError(parseTxError(err));
     }
   };
 
@@ -233,11 +281,11 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
             </div>
           )}
 
-          {(writeError || receiptError) && (
+          {(localError || writeError || receiptError) && (
             <div className="p-4 bg-danger-soft border border-danger-border rounded-xl text-xs font-mono text-danger space-y-1">
               <div className="font-semibold">⚠️ ACL Transaction Error</div>
               <p className="text-[11px] opacity-90 break-words">
-                {parseTxError(writeError || receiptError)}
+                {parseTxError(localError || writeError || receiptError)}
               </p>
             </div>
           )}

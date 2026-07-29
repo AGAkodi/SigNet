@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useReadContract, useWriteContract, useWaitForTransactionReceipt, usePublicClient } from "wagmi";
 import { WaxSealValue } from "./WaxSealValue";
 import { noxSdk } from "../lib/noxSdk";
 import { useBufferedFees, parseTxError } from "../lib/errorHelper";
@@ -65,6 +65,8 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
 
   const { writeContract, data: hash, isPending: isWriting, error: writeError, reset } = useWriteContract();
   const { getBufferedFeeData } = useBufferedFees();
+  const [localError, setLocalError] = useState<string | null>(null);
+  const publicClient = usePublicClient();
 
   const { isLoading: isConfirming, isSuccess: isConfirmed, error: receiptError } =
     useWaitForTransactionReceipt({
@@ -95,11 +97,42 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
     if (isNaN(num) || num <= 0) return;
 
     reset();
+    setLocalError(null);
     setActiveAction("REPAY");
 
     try {
       const enc = await noxSdk.encryptInput(num, CONFIDENTIAL_CREDIT_ADDRESS, userAddress);
+      console.log("Nox encryption result stubbed status:", enc.isStubbed);
       const feeData = await getBufferedFeeData();
+
+      // Pre-flight contract simulation
+      if (publicClient) {
+        try {
+          console.log("Simulating repay call...");
+          await publicClient.simulateContract({
+            account: userAddress as `0x${string}`,
+            address: CONFIDENTIAL_CREDIT_ADDRESS,
+            abi: CONFIDENTIAL_CREDIT_ABI,
+            functionName: "repay",
+            args: [
+              CONTRACT_ADDRESSES.USDC,
+              BigInt(num),
+              enc.encryptedHandle as `0x${string}`,
+              enc.proof as `0x${string}`,
+            ],
+            ...feeData,
+          });
+          console.log("repay simulation succeeded.");
+        } catch (simError: any) {
+          console.error("Simulation failed for repay:", simError);
+          let parsed = parseTxError(simError);
+          if (enc.isStubbed) {
+            parsed = `${parsed} (Using unverified local proof — Nox Gateway may be unreachable)`;
+          }
+          setLocalError(parsed);
+          return; // Block call from sending to wallet
+        }
+      }
 
       writeContract({
         address: CONFIDENTIAL_CREDIT_ADDRESS,
@@ -115,6 +148,7 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
       });
     } catch (err) {
       console.error("Repayment Error:", err);
+      setLocalError(parseTxError(err));
     }
   };
 
@@ -125,10 +159,32 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
     }
 
     reset();
+    setLocalError(null);
     setActiveAction("EVALUATE");
 
     try {
       const feeData = await getBufferedFeeData();
+
+      // Pre-flight contract simulation
+      if (publicClient) {
+        try {
+          console.log("Simulating checkAndLiquidate call...");
+          await publicClient.simulateContract({
+            account: userAddress as `0x${string}`,
+            address: CONFIDENTIAL_CREDIT_ADDRESS,
+            abi: CONFIDENTIAL_CREDIT_ABI,
+            functionName: "checkAndLiquidate",
+            args: [userAddress as `0x${string}`],
+            ...feeData,
+          });
+          console.log("checkAndLiquidate simulation succeeded.");
+        } catch (simError: any) {
+          console.error("Simulation failed for checkAndLiquidate:", simError);
+          const parsed = parseTxError(simError);
+          setLocalError(parsed);
+          return; // Block call from sending to wallet
+        }
+      }
 
       writeContract({
         address: CONFIDENTIAL_CREDIT_ADDRESS,
@@ -139,6 +195,7 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
       });
     } catch (err) {
       console.error("Liquidation Evaluation Error:", err);
+      setLocalError(parseTxError(err));
     }
   };
 
@@ -287,11 +344,11 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
             </div>
           )}
 
-          {(writeError || receiptError) && (
+          {(localError || writeError || receiptError) && (
             <div className="p-4 bg-danger-soft border border-danger-border rounded-xl text-xs font-mono text-danger space-y-1">
               <div className="font-semibold">⚠️ Transaction Error</div>
               <p className="text-[11px] opacity-90 break-words">
-                {parseTxError(writeError || receiptError)}
+                {parseTxError(localError || writeError || receiptError)}
               </p>
             </div>
           )}

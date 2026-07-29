@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useWriteContract, useWaitForTransactionReceipt, usePublicClient } from "wagmi";
 import { WaxSealValue } from "./WaxSealValue";
 import { noxSdk, EncryptedInputResult } from "../lib/noxSdk";
 import { useBufferedFees, parseTxError } from "../lib/errorHelper";
@@ -21,7 +21,8 @@ const INCOME_STREAM_ABI = [
     name: "createStream",
     inputs: [
       { name: "employee", type: "address" },
-      { name: "rate", type: "bytes32" },
+      { name: "externalRate", type: "bytes32" },
+      { name: "proof", type: "bytes" },
     ],
     outputs: [{ name: "streamId", type: "bytes32" }],
     stateMutability: "nonpayable",
@@ -35,9 +36,11 @@ export const Screen2StreamSetup: React.FC<Screen2StreamSetupProps> = ({
   const [employerAddress, setEmployerAddress] = useState("0x4A817942C5c106A9a3a93F877b0C019c92238472");
   const [monthlySalary, setMonthlySalary] = useState("8000");
   const [encResult, setEncResult] = useState<EncryptedInputResult | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
 
   const { writeContract, data: hash, isPending: isWriting, error: writeError } = useWriteContract();
   const { getBufferedFeeData } = useBufferedFees();
+  const publicClient = usePublicClient();
 
   const { isLoading: isConfirming, isSuccess: isConfirmed, error: receiptError } =
     useWaitForTransactionReceipt({
@@ -85,22 +88,57 @@ export const Screen2StreamSetup: React.FC<Screen2StreamSetupProps> = ({
       alert("Please connect your wallet first to interact on-chain.");
       return;
     }
+    setLocalError(null);
 
     try {
       const res = await noxSdk.encryptInput(monthlySalary, INCOME_STREAM_ADDRESS, userAddress);
       setEncResult(res);
-
+      console.log("Nox encryption result stubbed status:", res.isStubbed);
+ 
       const feeData = await getBufferedFeeData();
-
+ 
+      // Pre-flight contract simulation
+      if (publicClient) {
+        try {
+          console.log("Simulating createStream on-chain call...");
+          await publicClient.simulateContract({
+            account: userAddress as `0x${string}`,
+            address: INCOME_STREAM_ADDRESS,
+            abi: INCOME_STREAM_ABI,
+            functionName: "createStream",
+            args: [
+              userAddress as `0x${string}`,
+              res.encryptedHandle as `0x${string}`,
+              res.proof as `0x${string}`,
+            ],
+            ...feeData,
+          });
+          console.log("createStream simulation succeeded.");
+        } catch (simError: any) {
+          console.error("Simulation failed for createStream:", simError);
+          let parsed = parseTxError(simError);
+          if (res.isStubbed) {
+            parsed = `${parsed} (Using unverified local proof — Nox Gateway may be unreachable)`;
+          }
+          setLocalError(parsed);
+          return; // Block call from sending to wallet
+        }
+      }
+ 
       writeContract({
         address: INCOME_STREAM_ADDRESS,
         abi: INCOME_STREAM_ABI,
         functionName: "createStream",
-        args: [userAddress as `0x${string}`, res.encryptedHandle as `0x${string}`],
+        args: [
+          userAddress as `0x${string}`,
+          res.encryptedHandle as `0x${string}`,
+          res.proof as `0x${string}`,
+        ],
         ...feeData,
       });
     } catch (err) {
       console.error("Stream Creation Error:", err);
+      setLocalError(parseTxError(err));
     }
   };
 
@@ -197,11 +235,11 @@ export const Screen2StreamSetup: React.FC<Screen2StreamSetupProps> = ({
             </div>
           )}
 
-          {(writeError || receiptError) && (
+          {(localError || writeError || receiptError) && (
             <div className="p-4 bg-danger-soft border border-danger-border rounded-xl text-xs font-mono text-danger space-y-1">
               <div className="font-semibold">⚠️ Transaction Error</div>
               <p className="text-[11px] opacity-90 break-words">
-                {parseTxError(writeError || receiptError)}
+                {parseTxError(localError || writeError || receiptError)}
               </p>
             </div>
           )}

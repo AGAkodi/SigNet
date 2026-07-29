@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useWriteContract, useWaitForTransactionReceipt, usePublicClient } from "wagmi";
 import { WaxSealValue } from "./WaxSealValue";
 import { noxSdk, EncryptedInputResult } from "../lib/noxSdk";
 import { useBufferedFees, parseTxError } from "../lib/errorHelper";
@@ -59,6 +59,7 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
   const { writeContract: writeBorrow, data: hashBorrow, isPending: isWritingBorrow, error: writeErrorBorrow } = useWriteContract();
   const { isLoading: isConfirmingBorrow, isSuccess: isConfirmedBorrow } = useWaitForTransactionReceipt({ hash: hashBorrow });
   const { getBufferedFeeData } = useBufferedFees();
+  const publicClient = usePublicClient();
 
   // Re-encrypt handle whenever slider amount updates
   useEffect(() => {
@@ -117,7 +118,7 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
           USDC_ARBITRUM_SEPOLIA,
           BigInt(requestedAmount),
           res.encryptedHandle as `0x${string}`,
-          "0x01" as `0x${string}`,
+          res.proof as `0x${string}`,
         ],
         ...feeData,
       });
@@ -128,6 +129,22 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
 
   const handleStep2ExecuteBorrow = async () => {
     try {
+      if (!publicClient || !userAddress) return;
+
+      // 1. Read stored eligibility handle from the contract
+      const eligibilityHandle = await publicClient.readContract({
+        address: CONFIDENTIAL_CREDIT_ADDRESS,
+        abi: CONFIDENTIAL_CREDIT_ABI,
+        functionName: "getEncryptedBorrowEligibility",
+        args: [userAddress as `0x${string}`],
+      }) as string;
+
+      console.log("On-chain Eligibility Handle:", eligibilityHandle);
+
+      // 2. Fetch public decryption proof from Nox Gateway
+      const eligibilityProof = await noxSdk.getPublicDecryptionProof(eligibilityHandle);
+      console.log("Fetched Decryption Proof:", eligibilityProof);
+
       const feeData = await getBufferedFeeData();
 
       writeBorrow({
@@ -137,7 +154,7 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
         args: [
           USDC_ARBITRUM_SEPOLIA,
           BigInt(requestedAmount),
-          "0x01" as `0x${string}`,
+          eligibilityProof as `0x${string}`,
         ],
         ...feeData,
       });

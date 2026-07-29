@@ -27,13 +27,18 @@ const CONFIDENTIAL_CREDIT_ABI = [
   {
     type: "function",
     name: "repay",
-    inputs: [{ name: "repayAmount", type: "bytes32" }],
+    inputs: [
+      { name: "borrowAsset", type: "address" },
+      { name: "repayAmount", type: "uint256" },
+      { name: "externalRepayAmount", type: "bytes32" },
+      { name: "proof", type: "bytes" },
+    ],
     outputs: [{ name: "", type: "bytes32" }],
     stateMutability: "nonpayable",
   },
   {
     type: "function",
-    name: "evaluateLiquidation",
+    name: "checkAndLiquidate",
     inputs: [{ name: "borrower", type: "address" }],
     outputs: [{ name: "", type: "bytes32" }],
     stateMutability: "nonpayable",
@@ -100,7 +105,12 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
         address: CONFIDENTIAL_CREDIT_ADDRESS,
         abi: CONFIDENTIAL_CREDIT_ABI,
         functionName: "repay",
-        args: [enc.encryptedHandle as `0x${string}`],
+        args: [
+          CONTRACT_ADDRESSES.USDC,
+          BigInt(num),
+          enc.encryptedHandle as `0x${string}`,
+          enc.proof as `0x${string}`,
+        ],
         ...feeData,
       });
     } catch (err) {
@@ -123,7 +133,7 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
       writeContract({
         address: CONFIDENTIAL_CREDIT_ADDRESS,
         abi: CONFIDENTIAL_CREDIT_ABI,
-        functionName: "evaluateLiquidation",
+        functionName: "checkAndLiquidate",
         args: [userAddress as `0x${string}`],
         ...feeData,
       });
@@ -231,7 +241,7 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
               </span>
             </div>
             <span className="text-[11px] text-halo-deep font-mono mt-3 block">
-              Evaluated on-chain via ConfidentialCredit.evaluateLiquidation()
+              Evaluated on-chain via ConfidentialCredit.checkAndLiquidate()
             </span>
           </div>
         </div>

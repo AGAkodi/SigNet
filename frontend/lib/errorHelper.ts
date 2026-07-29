@@ -8,15 +8,25 @@ export interface BufferedFees {
 export function useBufferedFees() {
   const publicClient = usePublicClient();
 
-  const getBufferedFeeData = async (): Promise<BufferedFees> => {
+  const getBufferedFeeData = async (): Promise<any> => {
     try {
       if (!publicClient) return {};
       const fees = await publicClient.estimateFeesPerGas();
       if (!fees) return {};
 
+      // If maxFeePerGas is missing/undefined, we fall back to buffered legacy gasPrice
+      if (fees.maxFeePerGas === undefined || fees.maxFeePerGas === null) {
+        if (fees.gasPrice !== undefined && fees.gasPrice !== null) {
+          return {
+            gasPrice: (fees.gasPrice * 120n) / 100n,
+          };
+        }
+        return {};
+      }
+
       const result: BufferedFees = {};
+      result.maxFeePerGas = (fees.maxFeePerGas * 120n) / 100n;
       
-      // Fetch or default priority fee if undefined (common on Arbitrum Sepolia)
       let maxPriorityFeePerGas = fees.maxPriorityFeePerGas;
       if (maxPriorityFeePerGas === undefined || maxPriorityFeePerGas === null) {
         try {
@@ -26,18 +36,17 @@ export function useBufferedFees() {
         }
       }
 
-      // Apply 1.2x (20%) safety buffer to fee estimations
-      if (fees.maxFeePerGas !== undefined && fees.maxFeePerGas !== null) {
-        result.maxFeePerGas = (fees.maxFeePerGas * 120n) / 100n;
+      // Enforce a safe minimum for maxPriorityFeePerGas (1 Mwei / 0.001 Gwei)
+      // to prevent MetaMask Mobile from interpreting 0 as zero gas and breaking its UI.
+      if (maxPriorityFeePerGas === 0n) {
+        maxPriorityFeePerGas = 1000000n;
       }
-      
-      if (maxPriorityFeePerGas !== undefined && maxPriorityFeePerGas !== null) {
-        const bufferedPriority = (maxPriorityFeePerGas * 120n) / 100n;
-        // Ensure maxPriorityFeePerGas is never higher than maxFeePerGas
-        result.maxPriorityFeePerGas = result.maxFeePerGas !== undefined && bufferedPriority > result.maxFeePerGas
-          ? result.maxFeePerGas
-          : bufferedPriority;
-      }
+
+      const bufferedPriority = (maxPriorityFeePerGas * 120n) / 100n;
+      // Ensure maxPriorityFeePerGas is never higher than maxFeePerGas
+      result.maxPriorityFeePerGas = bufferedPriority > result.maxFeePerGas
+        ? result.maxFeePerGas
+        : bufferedPriority;
 
       return result;
     } catch (err) {

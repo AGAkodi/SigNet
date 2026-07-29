@@ -16,13 +16,29 @@ export function useBufferedFees() {
 
       const result: BufferedFees = {};
       
+      // Fetch or default priority fee if undefined (common on Arbitrum Sepolia)
+      let maxPriorityFeePerGas = fees.maxPriorityFeePerGas;
+      if (maxPriorityFeePerGas === undefined || maxPriorityFeePerGas === null) {
+        try {
+          maxPriorityFeePerGas = await publicClient.estimateMaxPriorityFeePerGas();
+        } catch {
+          maxPriorityFeePerGas = 0n;
+        }
+      }
+
       // Apply 1.2x (20%) safety buffer to fee estimations
       if (fees.maxFeePerGas !== undefined && fees.maxFeePerGas !== null) {
         result.maxFeePerGas = (fees.maxFeePerGas * 120n) / 100n;
       }
-      if (fees.maxPriorityFeePerGas !== undefined && fees.maxPriorityFeePerGas !== null) {
-        result.maxPriorityFeePerGas = (fees.maxPriorityFeePerGas * 120n) / 100n;
+      
+      if (maxPriorityFeePerGas !== undefined && maxPriorityFeePerGas !== null) {
+        const bufferedPriority = (maxPriorityFeePerGas * 120n) / 100n;
+        // Ensure maxPriorityFeePerGas is never higher than maxFeePerGas
+        result.maxPriorityFeePerGas = result.maxFeePerGas !== undefined && bufferedPriority > result.maxFeePerGas
+          ? result.maxFeePerGas
+          : bufferedPriority;
       }
+
       return result;
     } catch (err) {
       console.warn("Failed to estimate fees per gas with buffer, letting wallet estimate instead:", err);

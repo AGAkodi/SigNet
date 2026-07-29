@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { WaxSealValue } from "./WaxSealValue";
 import { noxSdk, EncryptedInputResult } from "../lib/noxSdk";
+import { useBufferedFees, parseTxError } from "../lib/errorHelper";
 
 import { CONTRACT_ADDRESSES } from "../lib/contracts";
 
@@ -57,6 +58,7 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
 
   const { writeContract: writeBorrow, data: hashBorrow, isPending: isWritingBorrow, error: writeErrorBorrow } = useWriteContract();
   const { isLoading: isConfirmingBorrow, isSuccess: isConfirmedBorrow } = useWaitForTransactionReceipt({ hash: hashBorrow });
+  const { getBufferedFeeData } = useBufferedFees();
 
   // Re-encrypt handle whenever slider amount updates
   useEffect(() => {
@@ -105,6 +107,8 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
       const res = await noxSdk.encryptInput(requestedAmount, CONFIDENTIAL_CREDIT_ADDRESS, userAddress);
       setEncResult(res);
 
+      const feeData = await getBufferedFeeData();
+
       writeEval({
         address: CONFIDENTIAL_CREDIT_ADDRESS,
         abi: CONFIDENTIAL_CREDIT_ABI,
@@ -115,6 +119,7 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
           res.encryptedHandle as `0x${string}`,
           "0x01" as `0x${string}`,
         ],
+        ...feeData,
       });
     } catch (err) {
       console.error("Evaluation Error:", err);
@@ -123,6 +128,8 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
 
   const handleStep2ExecuteBorrow = async () => {
     try {
+      const feeData = await getBufferedFeeData();
+
       writeBorrow({
         address: CONFIDENTIAL_CREDIT_ADDRESS,
         abi: CONFIDENTIAL_CREDIT_ABI,
@@ -132,6 +139,7 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
           BigInt(requestedAmount),
           "0x01" as `0x${string}`,
         ],
+        ...feeData,
       });
     } catch (err) {
       console.error("Borrow Execution Error:", err);
@@ -230,7 +238,7 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
             <div className="p-4 bg-danger-soft border border-danger-border rounded-xl text-xs font-mono text-danger space-y-1">
               <div className="font-semibold">⚠️ Transaction Error</div>
               <p className="text-[11px] opacity-90 break-words">
-                {writeErrorEval?.message || writeErrorBorrow?.message || "Contract call failed."}
+                {parseTxError(writeErrorEval || writeErrorBorrow)}
               </p>
             </div>
           )}

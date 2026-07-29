@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { WaxSealValue } from "./WaxSealValue";
 import { noxSdk, EncryptedInputResult } from "../lib/noxSdk";
+import { useBufferedFees, parseTxError } from "../lib/errorHelper";
 
 import { CONTRACT_ADDRESSES } from "../lib/contracts";
 
@@ -36,6 +37,7 @@ export const Screen2StreamSetup: React.FC<Screen2StreamSetupProps> = ({
   const [encResult, setEncResult] = useState<EncryptedInputResult | null>(null);
 
   const { writeContract, data: hash, isPending: isWriting, error: writeError } = useWriteContract();
+  const { getBufferedFeeData } = useBufferedFees();
 
   const { isLoading: isConfirming, isSuccess: isConfirmed, error: receiptError } =
     useWaitForTransactionReceipt({
@@ -88,11 +90,14 @@ export const Screen2StreamSetup: React.FC<Screen2StreamSetupProps> = ({
       const res = await noxSdk.encryptInput(monthlySalary, INCOME_STREAM_ADDRESS, userAddress);
       setEncResult(res);
 
+      const feeData = await getBufferedFeeData();
+
       writeContract({
         address: INCOME_STREAM_ADDRESS,
         abi: INCOME_STREAM_ABI,
         functionName: "createStream",
         args: [userAddress as `0x${string}`, res.encryptedHandle as `0x${string}`],
+        ...feeData,
       });
     } catch (err) {
       console.error("Stream Creation Error:", err);
@@ -196,7 +201,7 @@ export const Screen2StreamSetup: React.FC<Screen2StreamSetupProps> = ({
             <div className="p-4 bg-danger-soft border border-danger-border rounded-xl text-xs font-mono text-danger space-y-1">
               <div className="font-semibold">⚠️ Transaction Error</div>
               <p className="text-[11px] opacity-90 break-words">
-                {writeError?.message || receiptError?.message || "Contract call failed."}
+                {parseTxError(writeError || receiptError)}
               </p>
             </div>
           )}

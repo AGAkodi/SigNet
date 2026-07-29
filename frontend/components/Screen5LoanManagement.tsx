@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { WaxSealValue } from "./WaxSealValue";
 import { noxSdk } from "../lib/noxSdk";
+import { useBufferedFees, parseTxError } from "../lib/errorHelper";
 
 import { CONTRACT_ADDRESSES } from "../lib/contracts";
 
@@ -58,6 +59,7 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
   });
 
   const { writeContract, data: hash, isPending: isWriting, error: writeError, reset } = useWriteContract();
+  const { getBufferedFeeData } = useBufferedFees();
 
   const { isLoading: isConfirming, isSuccess: isConfirmed, error: receiptError } =
     useWaitForTransactionReceipt({
@@ -92,18 +94,21 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
 
     try {
       const enc = await noxSdk.encryptInput(num, CONFIDENTIAL_CREDIT_ADDRESS, userAddress);
+      const feeData = await getBufferedFeeData();
+
       writeContract({
         address: CONFIDENTIAL_CREDIT_ADDRESS,
         abi: CONFIDENTIAL_CREDIT_ABI,
         functionName: "repay",
         args: [enc.encryptedHandle as `0x${string}`],
+        ...feeData,
       });
     } catch (err) {
       console.error("Repayment Error:", err);
     }
   };
 
-  const handleEvaluateLiquidationOnChain = () => {
+  const handleEvaluateLiquidationOnChain = async () => {
     if (!userAddress) {
       alert("Please connect your wallet first.");
       return;
@@ -112,12 +117,19 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
     reset();
     setActiveAction("EVALUATE");
 
-    writeContract({
-      address: CONFIDENTIAL_CREDIT_ADDRESS,
-      abi: CONFIDENTIAL_CREDIT_ABI,
-      functionName: "evaluateLiquidation",
-      args: [userAddress as `0x${string}`],
-    });
+    try {
+      const feeData = await getBufferedFeeData();
+
+      writeContract({
+        address: CONFIDENTIAL_CREDIT_ADDRESS,
+        abi: CONFIDENTIAL_CREDIT_ABI,
+        functionName: "evaluateLiquidation",
+        args: [userAddress as `0x${string}`],
+        ...feeData,
+      });
+    } catch (err) {
+      console.error("Liquidation Evaluation Error:", err);
+    }
   };
 
   const currentOnChainHandle =
@@ -269,7 +281,7 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
             <div className="p-4 bg-danger-soft border border-danger-border rounded-xl text-xs font-mono text-danger space-y-1">
               <div className="font-semibold">⚠️ Transaction Error</div>
               <p className="text-[11px] opacity-90 break-words">
-                {writeError?.message || receiptError?.message || "Contract call failed."}
+                {parseTxError(writeError || receiptError)}
               </p>
             </div>
           )}

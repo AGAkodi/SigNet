@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useBufferedFees, parseTxError } from "../lib/errorHelper";
 
 interface AccessGrant {
   id: string;
@@ -54,6 +55,7 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
   const [pendingRevokeId, setPendingRevokeId] = useState<string | null>(null);
 
   const { writeContract, data: hash, isPending: isWriting, error: writeError, reset } = useWriteContract();
+  const { getBufferedFeeData } = useBufferedFees();
 
   const { isLoading: isConfirming, isSuccess: isConfirmed, error: receiptError } =
     useWaitForTransactionReceipt({
@@ -99,12 +101,19 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
     reset();
     setActiveAction("GRANT");
 
-    writeContract({
-      address: NOX_COMPUTE_ADDRESS,
-      abi: NOX_COMPUTE_ACL_ABI,
-      functionName: "allow",
-      args: [targetHandle as `0x${string}`, auditorAddress as `0x${string}`],
-    });
+    try {
+      const feeData = await getBufferedFeeData();
+
+      writeContract({
+        address: NOX_COMPUTE_ADDRESS,
+        abi: NOX_COMPUTE_ACL_ABI,
+        functionName: "allow",
+        args: [targetHandle as `0x${string}`, auditorAddress as `0x${string}`],
+        ...feeData,
+      });
+    } catch (err) {
+      console.error("Grant Access Error:", err);
+    }
   };
 
   const handleRevokeAccess = async (grant: AccessGrant) => {
@@ -117,12 +126,19 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
     setActiveAction("REVOKE");
     setPendingRevokeId(grant.id);
 
-    writeContract({
-      address: NOX_COMPUTE_ADDRESS,
-      abi: NOX_COMPUTE_ACL_ABI,
-      functionName: "disallowTransient",
-      args: [targetHandle as `0x${string}`, grant.auditorAddress as `0x${string}`],
-    });
+    try {
+      const feeData = await getBufferedFeeData();
+
+      writeContract({
+        address: NOX_COMPUTE_ADDRESS,
+        abi: NOX_COMPUTE_ACL_ABI,
+        functionName: "disallowTransient",
+        args: [targetHandle as `0x${string}`, grant.auditorAddress as `0x${string}`],
+        ...feeData,
+      });
+    } catch (err) {
+      console.error("Revoke Access Error:", err);
+    }
   };
 
   const isBusy = isWriting || isConfirming;
@@ -221,7 +237,7 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
             <div className="p-4 bg-danger-soft border border-danger-border rounded-xl text-xs font-mono text-danger space-y-1">
               <div className="font-semibold">⚠️ ACL Transaction Error</div>
               <p className="text-[11px] opacity-90 break-words">
-                {writeError?.message || receiptError?.message || "ACL contract call failed."}
+                {parseTxError(writeError || receiptError)}
               </p>
             </div>
           )}

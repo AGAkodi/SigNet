@@ -2,10 +2,10 @@
 
 import React, { useState, useEffect } from "react";
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt, usePublicClient, useWalletClient } from "wagmi";
+import { formatUnits } from "viem";
 import { WaxSealValue } from "./WaxSealValue";
 import { noxSdk } from "../lib/noxSdk";
 import { useBufferedFees, parseTxError } from "../lib/errorHelper";
-
 import { CONTRACT_ADDRESSES } from "../lib/contracts";
 
 interface Screen5LoanManagementProps {
@@ -15,6 +15,7 @@ interface Screen5LoanManagementProps {
 }
 
 const CONFIDENTIAL_CREDIT_ADDRESS = CONTRACT_ADDRESSES.ConfidentialCredit;
+const zeroHash = "0x0000000000000000000000000000000000000000000000000000000000000000";
 
 const CONFIDENTIAL_CREDIT_ABI = [
   {
@@ -22,6 +23,20 @@ const CONFIDENTIAL_CREDIT_ABI = [
     name: "getEncryptedBorrowBalance",
     inputs: [{ name: "account", type: "address" }],
     outputs: [{ name: "", type: "bytes32" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "getUserBorrowAmount",
+    inputs: [{ name: "borrower", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "getUserCollateralAmount",
+    inputs: [{ name: "borrower", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
     stateMutability: "view",
   },
   {
@@ -73,15 +88,44 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
   activeBorrow,
   onRepayExecuted,
 }) => {
-  const [repayAmount, setRepayAmount] = useState(activeBorrow > 0 ? "5000" : "1000");
+  const [repayAmount, setRepayAmount] = useState("1000");
   const [isLiquidatable, setIsLiquidatable] = useState(false);
   const [activeAction, setActiveAction] = useState<"REPAY" | "EVALUATE" | "APPROVE" | null>(null);
+  const [cachedRate, setCachedRate] = useState<number>(0);
 
-  // Read real on-chain borrow balance handle from ConfidentialCredit contract
+  // Load local cached plaintext rate if available
+  useEffect(() => {
+    if (typeof window !== "undefined" && userAddress) {
+      const saved = localStorage.getItem(`signet_monthly_rate_${userAddress.toLowerCase()}`);
+      if (saved) {
+        setCachedRate(parseFloat(saved));
+      }
+    }
+  }, [userAddress]);
+
+  // 1. Read real on-chain borrow balance handle
   const { data: onChainBorrowHandle, refetch: refetchBorrowBalance } = useReadContract({
     address: CONFIDENTIAL_CREDIT_ADDRESS,
     abi: CONFIDENTIAL_CREDIT_ABI,
     functionName: "getEncryptedBorrowBalance",
+    args: [userAddress as `0x${string}`],
+    query: { enabled: !!userAddress && userAddress.startsWith("0x") },
+  });
+
+  // 2. Read real on-chain plaintext borrow amount
+  const { data: userBorrowAmountRaw, refetch: refetchBorrowAmount } = useReadContract({
+    address: CONFIDENTIAL_CREDIT_ADDRESS,
+    abi: CONFIDENTIAL_CREDIT_ABI,
+    functionName: "getUserBorrowAmount",
+    args: [userAddress as `0x${string}`],
+    query: { enabled: !!userAddress && userAddress.startsWith("0x") },
+  });
+
+  // 3. Read real on-chain collateral balance (for dynamic health ratio calculation)
+  const { data: userCollateralWei, refetch: refetchCollateral } = useReadContract({
+    address: CONFIDENTIAL_CREDIT_ADDRESS,
+    abi: CONFIDENTIAL_CREDIT_ABI,
+    functionName: "getUserCollateralAmount",
     args: [userAddress as `0x${string}`],
     query: { enabled: !!userAddress && userAddress.startsWith("0x") },
   });
@@ -101,10 +145,43 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
   const publicClient = usePublicClient();
   const { data: walletClient } = useWalletClient();
 
-  const { isLoading: isConfirming, isSuccess: isConfirmed, error: receiptError } =
+  const { isLoading: isConfirming, isSuccess: isConfirmed } =
     useWaitForTransactionReceipt({
       hash,
     });
+
+  // Resolve values
+  const borrowAmountVal = userBorrowAmountRaw ? Number(userBorrowAmountRaw) / 1000000 : activeBorrow;
+
+  // Formatting Collateral & Health Factor
+  let collateralInUSD = 0;
+  if (userCollateralWei !== undefined) {
+    const val = BigInt(userCollateralWei.toString());
+    if (val > 0n) {
+      if (val > 1000000000000n) {
+        collateralInUSD = Number(formatUnits(val, 18)) * 3000;
+      } else {
+        collateralInUSD = Number(val) / 1000000;
+      }
+    }
+  }
+  const maxBorrowCapacity = cachedRate * 6;
+  const totalCapacity = collateralInUSD + maxBorrowCapacity;
+  const isActuallyLiquidatable = borrowAmountVal > 0 && totalCapacity < borrowAmountVal;
+
+  const resolvedIsLiquidatable = isActuallyLiquidatable || isLiquidatable;
+
+  const parsedRepay = repayAmount ? parseFloat(repayAmount) : 0;
+  const requiredRepayAmount = parsedRepay > 0 && !isNaN(parsedRepay) ? BigInt(Math.floor(parsedRepay)) : 0n;
+  const currentAllowance = allowance ? BigInt(allowance.toString()) : 0n;
+  const isNeedApproval = parsedRepay > 0 && currentAllowance < requiredRepayAmount;
+
+  // Initialize repayment amount safe default once borrow value is fetched
+  useEffect(() => {
+    if (borrowAmountVal > 0) {
+      setRepayAmount(Math.min(5000, borrowAmountVal).toString());
+    }
+  }, [borrowAmountVal]);
 
   // When on-chain repayment, approval, or evaluation transaction completes
   useEffect(() => {
@@ -113,6 +190,8 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
         refetchAllowance();
       } else if (activeAction === "REPAY") {
         refetchBorrowBalance();
+        refetchBorrowAmount();
+        refetchCollateral();
         refetchAllowance();
         const num = parseFloat(repayAmount);
         if (!isNaN(num) && num > 0) {
@@ -121,7 +200,7 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
       }
       setActiveAction(null);
     }
-  }, [isConfirmed, hash, activeAction, repayAmount, refetchBorrowBalance, refetchAllowance, onRepayExecuted]);
+  }, [isConfirmed, hash, activeAction, repayAmount, refetchBorrowBalance, refetchBorrowAmount, refetchCollateral, refetchAllowance, onRepayExecuted]);
 
   const handleRepay = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -263,6 +342,7 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
           console.error("Simulation failed for checkAndLiquidate:", simError);
           const parsed = parseTxError(simError);
           setLocalError(parsed);
+          setActiveAction(null);
           return; // Block call from sending to wallet
         }
       }
@@ -277,20 +357,21 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
     } catch (err) {
       console.error("Liquidation Evaluation Error:", err);
       setLocalError(parseTxError(err));
+      setActiveAction(null);
     }
   };
 
   const currentOnChainHandle =
-    onChainBorrowHandle && typeof onChainBorrowHandle === "string" && onChainBorrowHandle !== "0x0000000000000000000000000000000000000000000000000000000000000000"
+    onChainBorrowHandle && typeof onChainBorrowHandle === "string" && onChainBorrowHandle !== zeroHash
       ? onChainBorrowHandle
-      : "0x4f1a09...b87e";
+      : "0x0000000000000000000000000000000000000000000000000000000000000000";
 
   const isBusy = isWriting || isConfirming;
 
   return (
     <div className="max-w-2xl mx-auto py-6 px-4 space-y-6">
       {/* Liquidation Risk Banner */}
-      {isLiquidatable && (
+      {resolvedIsLiquidatable && (
         <div className="p-5 bg-danger-soft border border-danger-border rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-panel">
           <div className="flex items-center gap-3">
             <span className="text-2xl shrink-0">⚠️</span>
@@ -326,7 +407,7 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
               Active Debt & Repayment
             </h2>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 font-mono text-[10px]">
             <button
               type="button"
               onClick={handleEvaluateLiquidationOnChain}
@@ -340,7 +421,7 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
               onClick={() => setIsLiquidatable((prev) => !prev)}
               className="btn-ghost !px-3 !py-1.5 !text-[11px]"
             >
-              {isLiquidatable ? "Clear Local Banner" : "Preview Risk Banner"}
+              {resolvedIsLiquidatable ? "Clear Local Banner" : "Preview Risk Banner"}
             </button>
           </div>
         </div>
@@ -352,7 +433,7 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
             <WaxSealValue
               label="Active Principal Balance (On-Chain)"
               encryptedHandle={currentOnChainHandle}
-              actualValue={`$${activeBorrow.toLocaleString()}.00 USD`}
+              actualValue={`$${borrowAmountVal.toLocaleString()}.00 USD`}
               userAddress={userAddress}
             />
           </div>
@@ -365,17 +446,17 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
             <div className="mt-1">
               <span
                 className={`inline-flex items-center gap-2 px-3.5 py-1.5 text-xs font-mono rounded-full border shadow-panel ${
-                  isLiquidatable
+                  resolvedIsLiquidatable
                     ? "bg-danger-soft border-danger-border text-danger font-semibold"
                     : "bg-patina-500/20 border-patina-400/50 text-patina-300 font-semibold"
                 }`}
               >
                 <span
                   className={`w-2 h-2 rounded-full ${
-                    isLiquidatable ? "bg-danger animate-pulse" : "bg-patina-400"
+                    resolvedIsLiquidatable ? "bg-danger animate-pulse" : "bg-patina-400"
                   }`}
                 />
-                {isLiquidatable ? "LIQUIDATION RISK" : "HEALTHY POSITION (TEE VERIFIED)"}
+                {resolvedIsLiquidatable ? "LIQUIDATION RISK" : "HEALTHY POSITION (TEE VERIFIED)"}
               </span>
             </div>
             <span className="text-[11px] text-halo-deep font-mono mt-3 block">
@@ -425,11 +506,11 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
             </div>
           )}
 
-          {(localError || writeError || receiptError) && (
+          {(localError || writeError) && (
             <div className="p-4 bg-danger-soft border border-danger-border rounded-xl text-xs font-mono text-danger space-y-1">
               <div className="font-semibold">⚠️ Transaction Error</div>
               <p className="text-[11px] opacity-90 break-words">
-                {parseTxError(localError || writeError || receiptError)}
+                {parseTxError(localError || writeError)}
               </p>
             </div>
           )}
@@ -443,7 +524,7 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
               ? "Confirming Signature in Wallet..."
               : isConfirming
               ? activeAction === "APPROVE" ? "Broadcasting Approval to Sepolia..." : "Broadcasting Repayment to Sepolia..."
-              : (allowance ? BigInt(allowance.toString()) : 0n) < (isNaN(parseFloat(repayAmount)) || parseFloat(repayAmount) <= 0 ? 0n : BigInt(Math.floor(parseFloat(repayAmount))))
+              : isNeedApproval
               ? "Approve USDC Spender"
               : "Repay Loan Principal (On-Chain)"}
           </button>

@@ -1,11 +1,10 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useWriteContract, useWaitForTransactionReceipt, usePublicClient, useWalletClient } from "wagmi";
+import { useReadContract, useWriteContract, useWaitForTransactionReceipt, usePublicClient, useWalletClient } from "wagmi";
 import { WaxSealValue } from "./WaxSealValue";
 import { noxSdk, EncryptedInputResult } from "../lib/noxSdk";
 import { useBufferedFees, parseTxError } from "../lib/errorHelper";
-
 import { CONTRACT_ADDRESSES } from "../lib/contracts";
 
 interface Screen4RequestBorrowProps {
@@ -15,7 +14,8 @@ interface Screen4RequestBorrowProps {
 }
 
 const CONFIDENTIAL_CREDIT_ADDRESS = CONTRACT_ADDRESSES.ConfidentialCredit;
-const USDC_ARBITRUM_SEPOLIA = "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d";
+const USDC_ARBITRUM_SEPOLIA = CONTRACT_ADDRESSES.USDC;
+const zeroHash = "0x0000000000000000000000000000000000000000000000000000000000000000";
 
 const CONFIDENTIAL_CREDIT_ABI = [
   {
@@ -55,7 +55,67 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
   monthlyIncome,
   onBorrowApproved,
 }) => {
-  const maxLimit = monthlyIncome > 0 ? monthlyIncome * 6 : 48000;
+  const [cachedRate, setCachedRate] = useState<number>(0);
+
+  // Load local cached plaintext rate if available
+  useEffect(() => {
+    if (typeof window !== "undefined" && userAddress) {
+      const saved = localStorage.getItem(`signet_monthly_rate_${userAddress.toLowerCase()}`);
+      if (saved) {
+        setCachedRate(parseFloat(saved));
+      }
+    }
+  }, [userAddress]);
+
+  // 1. Read Stream ID on-chain
+  const { data: streamId } = useReadContract({
+    address: CONTRACT_ADDRESSES.IncomeStream,
+    abi: [
+      {
+        type: "function",
+        name: "employeeStreamId",
+        inputs: [{ name: "employee", type: "address" }],
+        outputs: [{ name: "", type: "bytes32" }],
+        stateMutability: "view",
+      }
+    ] as const,
+    functionName: "employeeStreamId",
+    args: [userAddress as `0x${string}`],
+    query: { enabled: !!userAddress && userAddress.startsWith("0x") },
+  });
+
+  const hasStream = streamId && streamId !== zeroHash;
+
+  // 2. Read Stream details on-chain to confirm rate handle exists
+  const { data: streamDetails } = useReadContract({
+    address: CONTRACT_ADDRESSES.IncomeStream,
+    abi: [
+      {
+        type: "function",
+        name: "streams",
+        inputs: [{ name: "streamId", type: "bytes32" }],
+        outputs: [
+          { name: "employer", type: "address" },
+          { name: "employee", type: "address" },
+          { name: "monthlyRate", type: "uint256" },
+          { name: "startTime", type: "uint256" },
+          { name: "lastClaimTime", type: "uint256" },
+          { name: "isActive", type: "bool" },
+        ],
+        stateMutability: "view",
+      }
+    ] as const,
+    functionName: "streams",
+    args: [streamId as `0x${string}`],
+    query: { enabled: !!hasStream },
+  });
+
+  const isStreamActive = streamDetails ? (streamDetails as any)[5] || (streamDetails as any).isActive : false;
+
+  // Derive maximum limit
+  const monthlyIncomeVal = cachedRate > 0 ? cachedRate : (isStreamActive ? monthlyIncome : 8000);
+  const maxLimit = monthlyIncomeVal * 6;
+
   const [requestedAmount, setRequestedAmount] = useState(Math.min(15000, maxLimit));
   const [encResult, setEncResult] = useState<EncryptedInputResult | null>(null);
   const [step, setStep] = useState<1 | 2>(1);
@@ -70,6 +130,13 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
   const { getBufferedFeeData } = useBufferedFees();
   const publicClient = usePublicClient();
   const { data: walletClient } = useWalletClient();
+
+  // Clamp selected borrow amount if max limit dynamically scales down
+  useEffect(() => {
+    if (requestedAmount > maxLimit) {
+      setRequestedAmount(maxLimit);
+    }
+  }, [maxLimit, requestedAmount]);
 
   // Re-encrypt handle whenever slider amount updates
   useEffect(() => {
@@ -116,6 +183,10 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
       alert("Please connect your wallet first to submit a confidential borrow request.");
       return;
     }
+    if (requestedAmount > maxLimit) {
+      alert("Requested amount exceeds maximum borrowing capacity.");
+      return;
+    }
     setLocalErrorEval(null);
     setLocalErrorBorrow(null);
     try {
@@ -150,7 +221,7 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
             parsed = `${parsed} (Using unverified local proof — Nox Gateway may be unreachable)`;
           }
           setLocalErrorEval(parsed);
-          return; // Block call from sending to wallet
+          return;
         }
       }
 
@@ -214,7 +285,7 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
         console.error("Simulation failed for requestBorrow:", simError);
         const parsed = parseTxError(simError);
         setLocalErrorBorrow(parsed);
-        return; // Block call from sending to wallet
+        return;
       }
 
       writeBorrow({
@@ -235,6 +306,7 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
   };
 
   const isBusy = isWritingEval || isConfirmingEval || isWritingBorrow || isConfirmingBorrow;
+  const isOverLimit = requestedAmount > maxLimit;
   const currentHandle = encResult?.handle || "0x0000000000000000000000000000000000000000000000000000000000000000";
 
   return (
@@ -282,7 +354,7 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
             <input
               type="range"
               min="1000"
-              max={Math.max(50000, maxLimit)}
+              max={maxLimit}
               step="500"
               disabled={step === 2}
               value={requestedAmount}
@@ -322,6 +394,12 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
             </div>
           )}
 
+          {isOverLimit && (
+            <div className="p-4 bg-red-950/80 border border-red-700/80 text-red-200 text-xs font-mono rounded-xl">
+              ⚠️ Requested amount exceeds maximum borrowing capacity limit of ${maxLimit.toLocaleString()}.
+            </div>
+          )}
+
           {(localErrorEval || localErrorBorrow || writeErrorEval || writeErrorBorrow) && (
             <div className="p-4 bg-danger-soft border border-danger-border rounded-xl text-xs font-mono text-danger space-y-1">
               <div className="font-semibold">⚠️ Transaction Error</div>
@@ -336,8 +414,8 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
             <button
               type="button"
               onClick={handleStep1Evaluate}
-              disabled={isBusy}
-              className={`w-full ${isBusy ? "btn-outline opacity-60" : "btn-primary"}`}
+              disabled={isBusy || isOverLimit}
+              className={`w-full ${(isBusy || isOverLimit) ? "btn-outline opacity-60" : "btn-primary"}`}
             >
               {isWritingEval
                 ? "Confirming Tx 1 Signature..."

@@ -33,7 +33,7 @@ export const Screen2StreamSetup: React.FC<Screen2StreamSetupProps> = ({
   userAddress,
   onStreamCreated,
 }) => {
-  const [employerAddress, setEmployerAddress] = useState("0x4A817942C5c106A9a3a93F877b0C019c92238472");
+  const [employerAddress, setEmployerAddress] = useState("");
   const [monthlySalary, setMonthlySalary] = useState("8000");
   const [encResult, setEncResult] = useState<EncryptedInputResult | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -77,13 +77,16 @@ export const Screen2StreamSetup: React.FC<Screen2StreamSetupProps> = ({
   // Navigate to Screen 3 only after on-chain transaction confirmation
   useEffect(() => {
     if (isConfirmed && hash && encResult) {
+      if (typeof window !== "undefined" && userAddress) {
+        localStorage.setItem(`signet_monthly_rate_${userAddress.toLowerCase()}`, monthlySalary);
+      }
       onStreamCreated({
         employer: employerAddress,
         monthlyRate: parseFloat(monthlySalary),
         handle: encResult.handle,
       });
     }
-  }, [isConfirmed, hash, encResult, employerAddress, monthlySalary, onStreamCreated]);
+  }, [isConfirmed, hash, encResult, employerAddress, monthlySalary, onStreamCreated, userAddress]);
 
   const handleCreateStream = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -180,6 +183,7 @@ export const Screen2StreamSetup: React.FC<Screen2StreamSetupProps> = ({
               type="text"
               value={employerAddress}
               onChange={(e) => setEmployerAddress(e.target.value)}
+              placeholder="0x..."
               required
               className="input-field"
             />

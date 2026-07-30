@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useWriteContract, useWaitForTransactionReceipt, usePublicClient } from "wagmi";
+import { useWriteContract, useWaitForTransactionReceipt, usePublicClient, useWalletClient } from "wagmi";
 import { WaxSealValue } from "./WaxSealValue";
 import { noxSdk, EncryptedInputResult } from "../lib/noxSdk";
 import { useBufferedFees, parseTxError } from "../lib/errorHelper";
@@ -41,6 +41,13 @@ const CONFIDENTIAL_CREDIT_ABI = [
     outputs: [{ name: "", type: "bytes32" }],
     stateMutability: "nonpayable",
   },
+  {
+    type: "function",
+    name: "getEncryptedBorrowEligibility",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "bytes32" }],
+    stateMutability: "view",
+  },
 ] as const;
 
 export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
@@ -62,17 +69,20 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
   const { isLoading: isConfirmingBorrow, isSuccess: isConfirmedBorrow } = useWaitForTransactionReceipt({ hash: hashBorrow });
   const { getBufferedFeeData } = useBufferedFees();
   const publicClient = usePublicClient();
+  const { data: walletClient } = useWalletClient();
 
   // Re-encrypt handle whenever slider amount updates
   useEffect(() => {
     let isMounted = true;
     const updateEncryption = async () => {
       if (!requestedAmount || requestedAmount <= 0) return;
+      if (!walletClient) return;
       try {
         const res = await noxSdk.encryptInput(
           requestedAmount,
           CONFIDENTIAL_CREDIT_ADDRESS,
-          userAddress || "0x0000000000000000000000000000000000000000"
+          userAddress || "0x0000000000000000000000000000000000000000",
+          walletClient
         );
         if (isMounted) {
           setEncResult(res);
@@ -85,7 +95,7 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [requestedAmount, userAddress]);
+  }, [requestedAmount, userAddress, walletClient]);
 
   // Transition from Step 1 to Step 2 when Tx 1 is confirmed
   useEffect(() => {
@@ -109,7 +119,7 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
     setLocalErrorEval(null);
     setLocalErrorBorrow(null);
     try {
-      const res = await noxSdk.encryptInput(requestedAmount, CONFIDENTIAL_CREDIT_ADDRESS, userAddress);
+      const res = await noxSdk.encryptInput(requestedAmount, CONFIDENTIAL_CREDIT_ADDRESS, userAddress, walletClient);
       setEncResult(res);
       console.log("Nox encryption result stubbed status:", res.isStubbed);
 
@@ -127,8 +137,8 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
             args: [
               USDC_ARBITRUM_SEPOLIA,
               BigInt(requestedAmount),
-              res.encryptedHandle as `0x${string}`,
-              res.proof as `0x${string}`,
+              res.handle as `0x${string}`,
+              res.handleProof as `0x${string}`,
             ],
             ...feeData,
           });
@@ -151,8 +161,8 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
         args: [
           USDC_ARBITRUM_SEPOLIA,
           BigInt(requestedAmount),
-          res.encryptedHandle as `0x${string}`,
-          res.proof as `0x${string}`,
+          res.handle as `0x${string}`,
+          res.handleProof as `0x${string}`,
         ],
         ...feeData,
       });
@@ -166,7 +176,7 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
     setLocalErrorEval(null);
     setLocalErrorBorrow(null);
     try {
-      if (!publicClient || !userAddress) return;
+      if (!publicClient || !userAddress || !walletClient) return;
 
       // 1. Read stored eligibility handle from the contract
       const eligibilityHandle = await publicClient.readContract({
@@ -179,7 +189,7 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
       console.log("On-chain Eligibility Handle:", eligibilityHandle);
 
       // 2. Fetch public decryption proof from Nox Gateway
-      const eligibilityProof = await noxSdk.getPublicDecryptionProof(eligibilityHandle);
+      const eligibilityProof = await noxSdk.getPublicDecryptionProof(eligibilityHandle, walletClient);
       console.log("Fetched Decryption Proof:", eligibilityProof);
 
       const feeData = await getBufferedFeeData();
@@ -225,7 +235,7 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
   };
 
   const isBusy = isWritingEval || isConfirmingEval || isWritingBorrow || isConfirmingBorrow;
-  const currentHandle = encResult?.encryptedHandle || "0x0000000000000000000000000000000000000000000000000000000000000000";
+  const currentHandle = encResult?.handle || "0x0000000000000000000000000000000000000000000000000000000000000000";
 
   return (
     <div className="max-w-2xl mx-auto py-6 px-4">

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useReadContract, useWriteContract, useWaitForTransactionReceipt, usePublicClient } from "wagmi";
+import { useReadContract, useWriteContract, useWaitForTransactionReceipt, usePublicClient, useWalletClient } from "wagmi";
 import { WaxSealValue } from "./WaxSealValue";
 import { noxSdk } from "../lib/noxSdk";
 import { useBufferedFees, parseTxError } from "../lib/errorHelper";
@@ -45,6 +45,29 @@ const CONFIDENTIAL_CREDIT_ABI = [
   },
 ] as const;
 
+const ERC20_ABI = [
+  {
+    type: "function",
+    name: "allowance",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "spender", type: "address" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "approve",
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "nonpayable",
+  },
+] as const;
+
 export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
   userAddress,
   activeBorrow,
@@ -52,7 +75,7 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
 }) => {
   const [repayAmount, setRepayAmount] = useState(activeBorrow > 0 ? "5000" : "1000");
   const [isLiquidatable, setIsLiquidatable] = useState(false);
-  const [activeAction, setActiveAction] = useState<"REPAY" | "EVALUATE" | null>(null);
+  const [activeAction, setActiveAction] = useState<"REPAY" | "EVALUATE" | "APPROVE" | null>(null);
 
   // Read real on-chain borrow balance handle from ConfidentialCredit contract
   const { data: onChainBorrowHandle, refetch: refetchBorrowBalance } = useReadContract({
@@ -63,21 +86,34 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
     query: { enabled: !!userAddress && userAddress.startsWith("0x") },
   });
 
+  // Read ERC20 USDC allowance for ConfidentialCredit vault
+  const { data: allowance, refetch: refetchAllowance } = useReadContract({
+    address: CONTRACT_ADDRESSES.USDC,
+    abi: ERC20_ABI,
+    functionName: "allowance",
+    args: [userAddress as `0x${string}`, CONFIDENTIAL_CREDIT_ADDRESS],
+    query: { enabled: !!userAddress && userAddress.startsWith("0x") },
+  });
+
   const { writeContract, data: hash, isPending: isWriting, error: writeError, reset } = useWriteContract();
   const { getBufferedFeeData } = useBufferedFees();
   const [localError, setLocalError] = useState<string | null>(null);
   const publicClient = usePublicClient();
+  const { data: walletClient } = useWalletClient();
 
   const { isLoading: isConfirming, isSuccess: isConfirmed, error: receiptError } =
     useWaitForTransactionReceipt({
       hash,
     });
 
-  // When on-chain repayment or evaluation transaction completes
+  // When on-chain repayment, approval, or evaluation transaction completes
   useEffect(() => {
     if (isConfirmed && hash) {
-      if (activeAction === "REPAY") {
+      if (activeAction === "APPROVE") {
+        refetchAllowance();
+      } else if (activeAction === "REPAY") {
         refetchBorrowBalance();
+        refetchAllowance();
         const num = parseFloat(repayAmount);
         if (!isNaN(num) && num > 0) {
           onRepayExecuted(num);
@@ -85,7 +121,7 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
       }
       setActiveAction(null);
     }
-  }, [isConfirmed, hash, activeAction, repayAmount, refetchBorrowBalance, onRepayExecuted]);
+  }, [isConfirmed, hash, activeAction, repayAmount, refetchBorrowBalance, refetchAllowance, onRepayExecuted]);
 
   const handleRepay = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -98,10 +134,53 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
 
     reset();
     setLocalError(null);
+
+    const requiredAmount = BigInt(num);
+    const currentAllowance = allowance ? BigInt(allowance.toString()) : 0n;
+
+    if (currentAllowance < requiredAmount) {
+      setActiveAction("APPROVE");
+      try {
+        console.log("Approving ConfidentialCredit to spend USDC...");
+        const feeData = await getBufferedFeeData();
+
+        if (publicClient) {
+          try {
+            await publicClient.simulateContract({
+              account: userAddress as `0x${string}`,
+              address: CONTRACT_ADDRESSES.USDC,
+              abi: ERC20_ABI,
+              functionName: "approve",
+              args: [CONFIDENTIAL_CREDIT_ADDRESS, requiredAmount],
+              ...feeData,
+            });
+          } catch (simErr: any) {
+            console.error("Approval simulation failed:", simErr);
+            setLocalError(parseTxError(simErr));
+            setActiveAction(null);
+            return;
+          }
+        }
+
+        writeContract({
+          address: CONTRACT_ADDRESSES.USDC,
+          abi: ERC20_ABI,
+          functionName: "approve",
+          args: [CONFIDENTIAL_CREDIT_ADDRESS, requiredAmount],
+          ...feeData,
+        });
+      } catch (err) {
+        console.error("USDC Approval Error:", err);
+        setLocalError(parseTxError(err));
+        setActiveAction(null);
+      }
+      return;
+    }
+
     setActiveAction("REPAY");
 
     try {
-      const enc = await noxSdk.encryptInput(num, CONFIDENTIAL_CREDIT_ADDRESS, userAddress);
+      const enc = await noxSdk.encryptInput(num, CONFIDENTIAL_CREDIT_ADDRESS, userAddress, walletClient);
       console.log("Nox encryption result stubbed status:", enc.isStubbed);
       const feeData = await getBufferedFeeData();
 
@@ -117,8 +196,8 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
             args: [
               CONTRACT_ADDRESSES.USDC,
               BigInt(num),
-              enc.encryptedHandle as `0x${string}`,
-              enc.proof as `0x${string}`,
+              enc.handle as `0x${string}`,
+              enc.handleProof as `0x${string}`,
             ],
             ...feeData,
           });
@@ -130,6 +209,7 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
             parsed = `${parsed} (Using unverified local proof — Nox Gateway may be unreachable)`;
           }
           setLocalError(parsed);
+          setActiveAction(null);
           return; // Block call from sending to wallet
         }
       }
@@ -141,14 +221,15 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
         args: [
           CONTRACT_ADDRESSES.USDC,
           BigInt(num),
-          enc.encryptedHandle as `0x${string}`,
-          enc.proof as `0x${string}`,
+          enc.handle as `0x${string}`,
+          enc.handleProof as `0x${string}`,
         ],
         ...feeData,
       });
     } catch (err) {
       console.error("Repayment Error:", err);
       setLocalError(parseTxError(err));
+      setActiveAction(null);
     }
   };
 
@@ -323,7 +404,7 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
           {isWriting && (
             <div className="p-4 bg-patina-500/10 border border-patina-400/40 rounded-xl text-xs font-mono text-patina-300 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-patina-400 animate-ping" />
-              Please confirm the {activeAction === "REPAY" ? "Repayment" : "Liquidation Evaluation"} transaction in your wallet...
+              Please confirm the {activeAction === "REPAY" ? "Repayment" : activeAction === "APPROVE" ? "USDC Approval" : "Liquidation Evaluation"} transaction in your wallet...
             </div>
           )}
 
@@ -331,7 +412,7 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
             <div className="p-4 bg-mist-950 border border-patina-400/60 rounded-xl text-xs font-mono text-halo-soft space-y-1.5">
               <div className="flex items-center gap-2 text-patina-300 font-semibold">
                 <span className="w-2 h-2 rounded-full bg-patina-400 animate-pulse" />
-                {activeAction === "REPAY" ? "Encrypted Repayment" : "Liquidation Evaluation"} submitted! Mining block on Sepolia...
+                {activeAction === "REPAY" ? "Encrypted Repayment" : activeAction === "APPROVE" ? "USDC Approval" : "Liquidation Evaluation"} submitted! Mining block on Sepolia...
               </div>
               <a
                 href={`https://sepolia.arbiscan.io/tx/${hash}`}
@@ -361,7 +442,9 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
             {isWriting
               ? "Confirming Signature in Wallet..."
               : isConfirming
-              ? "Broadcasting Repayment to Sepolia..."
+              ? activeAction === "APPROVE" ? "Broadcasting Approval to Sepolia..." : "Broadcasting Repayment to Sepolia..."
+              : (allowance ? BigInt(allowance.toString()) : 0n) < (isNaN(parseFloat(repayAmount)) || parseFloat(repayAmount) <= 0 ? 0n : BigInt(Math.floor(parseFloat(repayAmount))))
+              ? "Approve USDC Spender"
               : "Repay Loan Principal (On-Chain)"}
           </button>
         </form>

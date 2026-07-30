@@ -147,10 +147,12 @@ contract IncomeStream {
     /**
      * @notice Queries the encrypted income rate handle for an employee
      */
-    function getIncomeRateHandle(address employee) external view returns (euint256) {
+    function getIncomeRateHandle(address employee) external returns (euint256) {
         bytes32 streamId = employeeStreamId[employee];
         require(streams[streamId].isActive, "IncomeStream: no active stream for employee");
-        return _encryptedMonthlyRate[employee];
+        euint256 rate = _encryptedMonthlyRate[employee];
+        Nox.allowTransient(rate, msg.sender);
+        return rate;
     }
 
     /**

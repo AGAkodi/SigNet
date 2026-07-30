@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useWriteContract, useWaitForTransactionReceipt, usePublicClient } from "wagmi";
+import { useWriteContract, useWaitForTransactionReceipt, usePublicClient, useWalletClient } from "wagmi";
 import { WaxSealValue } from "./WaxSealValue";
 import { noxSdk, EncryptedInputResult } from "../lib/noxSdk";
 import { useBufferedFees, parseTxError } from "../lib/errorHelper";
@@ -41,6 +41,7 @@ export const Screen2StreamSetup: React.FC<Screen2StreamSetupProps> = ({
   const { writeContract, data: hash, isPending: isWriting, error: writeError } = useWriteContract();
   const { getBufferedFeeData } = useBufferedFees();
   const publicClient = usePublicClient();
+  const { data: walletClient } = useWalletClient();
 
   const { isLoading: isConfirming, isSuccess: isConfirmed, error: receiptError } =
     useWaitForTransactionReceipt({
@@ -52,11 +53,13 @@ export const Screen2StreamSetup: React.FC<Screen2StreamSetupProps> = ({
     let isMounted = true;
     const updateEncryption = async () => {
       if (!monthlySalary || isNaN(Number(monthlySalary)) || Number(monthlySalary) <= 0) return;
+      if (!walletClient) return;
       try {
         const res = await noxSdk.encryptInput(
           monthlySalary,
           INCOME_STREAM_ADDRESS,
-          userAddress || "0x0000000000000000000000000000000000000000"
+          userAddress || "0x0000000000000000000000000000000000000000",
+          walletClient
         );
         if (isMounted) {
           setEncResult(res);
@@ -69,7 +72,7 @@ export const Screen2StreamSetup: React.FC<Screen2StreamSetupProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [monthlySalary, userAddress]);
+  }, [monthlySalary, userAddress, walletClient]);
 
   // Navigate to Screen 3 only after on-chain transaction confirmation
   useEffect(() => {
@@ -77,7 +80,7 @@ export const Screen2StreamSetup: React.FC<Screen2StreamSetupProps> = ({
       onStreamCreated({
         employer: employerAddress,
         monthlyRate: parseFloat(monthlySalary),
-        handle: encResult.encryptedHandle,
+        handle: encResult.handle,
       });
     }
   }, [isConfirmed, hash, encResult, employerAddress, monthlySalary, onStreamCreated]);
@@ -91,7 +94,7 @@ export const Screen2StreamSetup: React.FC<Screen2StreamSetupProps> = ({
     setLocalError(null);
 
     try {
-      const res = await noxSdk.encryptInput(monthlySalary, INCOME_STREAM_ADDRESS, userAddress);
+      const res = await noxSdk.encryptInput(monthlySalary, INCOME_STREAM_ADDRESS, userAddress, walletClient);
       setEncResult(res);
       console.log("Nox encryption result stubbed status:", res.isStubbed);
  
@@ -108,8 +111,8 @@ export const Screen2StreamSetup: React.FC<Screen2StreamSetupProps> = ({
             functionName: "createStream",
             args: [
               userAddress as `0x${string}`,
-              res.encryptedHandle as `0x${string}`,
-              res.proof as `0x${string}`,
+              res.handle as `0x${string}`,
+              res.handleProof as `0x${string}`,
             ],
             ...feeData,
           });
@@ -131,8 +134,8 @@ export const Screen2StreamSetup: React.FC<Screen2StreamSetupProps> = ({
         functionName: "createStream",
         args: [
           userAddress as `0x${string}`,
-          res.encryptedHandle as `0x${string}`,
-          res.proof as `0x${string}`,
+          res.handle as `0x${string}`,
+          res.handleProof as `0x${string}`,
         ],
         ...feeData,
       });
@@ -143,7 +146,7 @@ export const Screen2StreamSetup: React.FC<Screen2StreamSetupProps> = ({
   };
 
   const isBusy = isWriting || isConfirming;
-  const currentHandle = encResult?.encryptedHandle || "0x0000000000000000000000000000000000000000000000000000000000000000";
+  const currentHandle = encResult?.handle || "0x0000000000000000000000000000000000000000000000000000000000000000";
 
   return (
     <div className="max-w-2xl mx-auto py-6 px-4">

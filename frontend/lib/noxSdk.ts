@@ -1,4 +1,5 @@
 import { ethers } from "ethers";
+import { createViemHandleClient } from "@iexec-nox/handle";
 
 /**
  * Nox Compute ABI snippet for ACL permission management on-chain
@@ -14,14 +15,14 @@ const NOX_COMPUTE_ABI = [
 
 export interface EncryptedInputResult {
   value: string;
-  encryptedHandle: string;
-  proof: string;
+  handle: string;
+  handleProof: string;
   salt: string;
   isStubbed: boolean;
 }
 
 export interface DecryptResult {
-  encryptedHandle: string;
+  handle: string;
   decryptedValue: string;
   isAuthorized: boolean;
   viewerAddress: string;
@@ -39,98 +40,69 @@ export class NoxFrontendSDK {
   // Arbitrum Sepolia: 0xd464B198f06756a1d00be223634b85E0a731c229
   private noxComputeAddress = CONTRACT_ADDRESSES.NoxCompute;
   private handleStore = new Map<string, string>();
+  private handleClient: any = null;
+
+  private async initHandleClient(walletClient?: any) {
+    if (this.handleClient) return;
+    if (!walletClient) {
+      throw new Error("Nox Gateway unavailable — cannot proceed without a valid wallet client");
+    }
+    this.handleClient = await createViemHandleClient(walletClient);
+  }
 
   /**
    * Client-side cryptographic handle generation.
-   * Calls real Nox KMS Gateway (https://gateway-testnets.noxprotocol.dev) via @iexec-nox/handle SDK
+   * Calls real Nox KMS Gateway via @iexec-nox/handle SDK
    * to get real 137-byte TEE input proofs verifiable by on-chain Nox protocol smart contracts.
    */
   async encryptInput(
     value: number | bigint | string,
     contractAddress: string,
     userAddress: string,
-    signer?: ethers.Signer
+    walletClient?: any
   ): Promise<EncryptedInputResult> {
     const rawVal = BigInt(value);
 
-    // Try live Gateway REST API first, which does not require a signer for registration
     try {
-      const hexValue = ethers.zeroPadValue(ethers.toBeHex(rawVal), 32);
-      const url = "https://gateway-testnets.noxprotocol.dev/v0/secrets?chain_id=421614";
-      const body = {
-        value: hexValue,
-        solidityType: "uint256",
-        applicationContract: contractAddress,
-        owner: userAddress,
-      };
-      
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const json = await res.json();
-      
-      if (json.error) {
-        throw new Error(json.message || json.error);
-      }
-      
-      const handle = json.payload?.handle || json.handle;
-      const handleProof = json.payload?.proof || json.proof;
-      
+      await this.initHandleClient(walletClient);
+
+      const { handle, handleProof } = await this.handleClient.encryptInput(
+        rawVal,
+        "uint256",
+        contractAddress
+      );
+
       if (handle && handleProof) {
         this.handleStore.set(handle.toLowerCase(), rawVal.toString());
         return {
           value: rawVal.toString(),
-          encryptedHandle: handle,
-          proof: handleProof,
+          handle: handle,
+          handleProof: handleProof,
           salt: "0x00",
           isStubbed: false,
         };
       }
-    } catch (err) {
-      console.warn("Live Nox REST Gateway request failed, falling back to local simulation:", err);
+      throw new Error("Missing handle or handleProof from SDK");
+    } catch (err: any) {
+      console.error("Nox encryptInput error:", err);
+      throw new Error("Nox Gateway unavailable — cannot proceed without a valid proof: " + (err.message || err));
     }
-
-    // Existing fallback if API call fails
-    const salt = ethers.hexlify(ethers.randomBytes(32));
-    const encryptedHandle = ethers.keccak256(
-      ethers.solidityPacked(
-        ["uint256", "bytes32", "address", "string"],
-        [rawVal, salt, userAddress, "NOX_TEE_SALARY_HANDLE_V1"]
-      )
-    );
-
-    const proof = ethers.hexlify(ethers.randomBytes(65));
-    this.handleStore.set(encryptedHandle.toLowerCase(), rawVal.toString());
-
-    return {
-      value: rawVal.toString(),
-      encryptedHandle,
-      proof,
-      salt,
-      isStubbed: true,
-    };
   }
 
   /**
    * Fetches public decryption proof for a handle from the Gateway API
    */
-  async getPublicDecryptionProof(encryptedHandle: string): Promise<string> {
+  async getPublicDecryptionProof(handle: string, walletClient?: any): Promise<string> {
     try {
-      const url = `https://gateway-testnets.noxprotocol.dev/v0/public/${encryptedHandle}`;
-      const res = await fetch(url);
-      const json = await res.json();
-      const proof = json.payload?.decryptionProof || json.decryptionProof;
-      if (proof) {
-        return proof;
+      await this.initHandleClient(walletClient);
+      const { decryptionProof } = await this.handleClient.publicDecrypt(handle as `0x${string}`);
+      if (decryptionProof) {
+        return decryptionProof;
       }
       throw new Error("No decryptionProof found in response");
-    } catch (err) {
-      console.warn("Failed to fetch public decryption proof, using fallback:", err);
-      // Fallback: 65 bytes signature placeholder + 0x01 (true)
-      const sigBytes65 = "00".repeat(65);
-      return "0x" + sigBytes65 + "01";
+    } catch (err: any) {
+      console.error("Nox publicDecrypt error:", err);
+      throw new Error("Nox Gateway unavailable — cannot proceed without a valid public decryption proof: " + (err.message || err));
     }
   }
 
@@ -138,13 +110,13 @@ export class NoxFrontendSDK {
    * Local handle decryption for authorized viewer.
    */
   async decrypt(
-    encryptedHandle: string,
+    handle: string,
     viewerAddress: string,
     knownValue?: string
   ): Promise<DecryptResult> {
-    const storedVal = this.handleStore.get(encryptedHandle.toLowerCase());
+    const storedVal = this.handleStore.get(handle.toLowerCase());
     return {
-      encryptedHandle,
+      handle,
       decryptedValue: knownValue || storedVal || "SEALED",
       isAuthorized: true,
       viewerAddress,
@@ -166,7 +138,7 @@ export class NoxFrontendSDK {
    * Executes real on-chain ACL permission grant against NoxCompute `allow(bytes32,address)`
    */
   async grantACL(
-    encryptedHandle: string,
+    handle: string,
     granteeAddress: string,
     signer?: ethers.Signer
   ) {
@@ -176,11 +148,11 @@ export class NoxFrontendSDK {
         NOX_COMPUTE_ABI,
         signer
       );
-      const tx = await noxComputeContract.allow(encryptedHandle, granteeAddress);
+      const tx = await noxComputeContract.allow(handle, granteeAddress);
       await tx.wait();
       return {
         action: "GRANT",
-        encryptedHandle,
+        handle,
         grantee: granteeAddress,
         txHash: tx.hash,
         isRealOnChainCall: true,
@@ -189,7 +161,7 @@ export class NoxFrontendSDK {
 
     return {
       action: "GRANT",
-      encryptedHandle,
+      handle,
       grantee: granteeAddress,
       timestamp: Date.now(),
       isRealOnChainCall: false,
@@ -200,7 +172,7 @@ export class NoxFrontendSDK {
    * Executes real on-chain ACL permission revoke against NoxCompute `disallowTransient(bytes32,address)`
    */
   async revokeACL(
-    encryptedHandle: string,
+    handle: string,
     granteeAddress: string,
     signer?: ethers.Signer
   ) {
@@ -210,11 +182,11 @@ export class NoxFrontendSDK {
         NOX_COMPUTE_ABI,
         signer
       );
-      const tx = await noxComputeContract.disallowTransient(encryptedHandle, granteeAddress);
+      const tx = await noxComputeContract.disallowTransient(handle, granteeAddress);
       await tx.wait();
       return {
         action: "REVOKE",
-        encryptedHandle,
+        handle,
         grantee: granteeAddress,
         txHash: tx.hash,
         isRealOnChainCall: true,
@@ -223,7 +195,7 @@ export class NoxFrontendSDK {
 
     return {
       action: "REVOKE",
-      encryptedHandle,
+      handle,
       grantee: granteeAddress,
       timestamp: Date.now(),
       isRealOnChainCall: false,

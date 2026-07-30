@@ -1,5 +1,5 @@
 import { usePublicClient } from 'wagmi';
-import { ContractFunctionRevertedError } from 'viem';
+import { ContractFunctionRevertedError, decodeErrorResult } from 'viem';
 
 export interface BufferedFees {
   maxFeePerGas?: bigint;
@@ -71,15 +71,162 @@ export function useBufferedFees() {
   return { getBufferedFeeData };
 }
 
+export function extractHexSelector(error: any): string | null {
+  if (!error) return null;
+
+  // Helper to validate and extract a 4-byte selector from a hex string
+  const getSelectorFromHex = (hex: any): string | null => {
+    if (typeof hex !== 'string') return null;
+    const trimmed = hex.trim().toLowerCase();
+    if (trimmed.startsWith('0x') && trimmed.length >= 10) {
+      // Avoid matching addresses (42 chars) or tx hashes (66 chars)
+      if (trimmed.length !== 42 && trimmed.length !== 66) {
+        return trimmed.slice(0, 10);
+      }
+    }
+    return null;
+  };
+
+  // 1. Walk the error tree to inspect data fields
+  if (error.walk) {
+    let selectorFromWalk: string | null = null;
+    error.walk((err: any) => {
+      if (err) {
+        // Check data property
+        let sel = getSelectorFromHex(err.data);
+        if (sel) {
+          selectorFromWalk = sel;
+          return true; // Stop walking
+        }
+        // Check nested error.data
+        if (err.error) {
+          sel = getSelectorFromHex(err.error.data);
+          if (sel) {
+            selectorFromWalk = sel;
+            return true;
+          }
+        }
+        // Check nested cause.data
+        if (err.cause) {
+          sel = getSelectorFromHex(err.cause.data);
+          if (sel) {
+            selectorFromWalk = sel;
+            return true;
+          }
+        }
+      }
+      return false;
+    });
+    if (selectorFromWalk) return selectorFromWalk;
+  }
+
+  // 2. Direct property lookups (in case walk didn't find it or isn't available)
+  let directSel = getSelectorFromHex(error.data) || 
+                  getSelectorFromHex(error.error?.data) || 
+                  getSelectorFromHex(error.cause?.data) ||
+                  getSelectorFromHex(error.info?.error?.data);
+  if (directSel) return directSel;
+
+  // 3. Search text messages for standalone 4-byte hex selectors (using word boundary)
+  const messages = [
+    error.message,
+    error.shortMessage,
+    error.cause?.message,
+  ];
+  for (const msg of messages) {
+    if (typeof msg === 'string') {
+      const match = msg.match(/\b(0x[a-fA-F0-9]{8})\b/i);
+      if (match) {
+        return match[1].toLowerCase();
+      }
+    }
+  }
+
+  return null;
+}
+
 export function parseTxError(error: any): string {
   if (!error) return "Contract call failed.";
   
   // Console log the raw error for developer diagnostics
   console.log("Parsing transaction / simulation error:", error);
 
+  // 1. Detect 4-byte hex error selectors (e.g. from Aave V3 or unrecognized)
+  const selector = extractHexSelector(error);
+  if (selector) {
+    const lowerSel = selector.toLowerCase();
+    
+    // Check common Aave V3 selectors for a better user-facing message
+    if (lowerSel === "0x3e1d1a10" || lowerSel === "0x5c0b115b") {
+      return "Transaction would fail: Health factor too low / Insufficient collateral on Aave";
+    } else if (lowerSel === "0x1f0d3a5a") {
+      return "Transaction would fail: Borrowing not enabled for asset on Aave";
+    } else if (lowerSel === "0x08c379a0") {
+      const getFullHexData = (err: any): string | null => {
+        if (!err) return null;
+        const inspectStr = (val: any): string | null => {
+          if (typeof val === 'string') {
+            const trimmed = val.trim();
+            if (trimmed.toLowerCase().startsWith('0x08c379a0')) {
+              return trimmed;
+            }
+          }
+          return null;
+        };
+        let found = inspectStr(err.data) || inspectStr(err.error?.data) || inspectStr(err.cause?.data) || inspectStr(err.info?.error?.data);
+        if (found) return found;
+        if (err.walk) {
+          let foundInWalk: string | null = null;
+          err.walk((e: any) => {
+            if (e) {
+              let f = inspectStr(e.data) || inspectStr(e.error?.data) || inspectStr(e.cause?.data);
+              if (f) {
+                foundInWalk = f;
+                return true;
+              }
+            }
+            return false;
+          });
+          if (foundInWalk) return foundInWalk;
+        }
+        const messages = [err.message, err.shortMessage, err.cause?.message];
+        for (const msg of messages) {
+          if (typeof msg === 'string') {
+            const match = msg.match(/(0x08c379a0[a-fA-F0-9]*)/i);
+            if (match) {
+              return match[1];
+            }
+          }
+        }
+        return null;
+      };
+
+      const fullHex = getFullHexData(error);
+      if (fullHex) {
+        try {
+          const decoded = decodeErrorResult({
+            abi: [{
+              type: 'error',
+              name: 'Error',
+              inputs: [{ name: 'message', type: 'string' }],
+            }],
+            data: fullHex as `0x${string}`,
+          });
+          if (decoded.args && decoded.args[0]) {
+            return decoded.args[0] as string;
+          }
+        } catch (e) {
+          console.warn("Failed to decode standard Error(string) hex:", e);
+        }
+      }
+    }
+    
+    return `Contract reverted with unrecognized error ${lowerSel} — check 4byte.directory or the source ABI`;
+  }
+
   let revertReason = "";
 
-  // 1. Walk the error to find ContractFunctionRevertedError or similar custom error structures
+  // 2. Walk the error to find ContractFunctionRevertedError or similar custom error structures
   if (error.walk) {
     // Try to find if it has errorName (custom Solidity error)
     const customErrorNode = error.walk((err: any) => err.data && typeof err.data === 'object' && err.data.errorName);
@@ -88,7 +235,7 @@ export function parseTxError(error: any): string {
     }
   }
 
-  // 2. Try to find ContractFunctionRevertedError specifically using viem's walkthrough
+  // 3. Try to find ContractFunctionRevertedError specifically using viem's walkthrough
   if (!revertReason && error.walk) {
     const walked = error.walk();
     if (walked && walked.message) {
@@ -100,7 +247,7 @@ export function parseTxError(error: any): string {
     }
   }
 
-  // 3. Regex check on top-level error messages
+  // 4. Regex check on top-level error messages
   if (!revertReason) {
     const message = error.message || "";
     const match = message.match(/reverted with the following reason:\s*([\s\S]+?)(?:\n\n|\nVersion|$)/i);
@@ -109,7 +256,7 @@ export function parseTxError(error: any): string {
     }
   }
 
-  // 4. Check nested cause messages
+  // 5. Check nested cause messages
   if (!revertReason && error.cause) {
     const causeMsg = error.cause.message || "";
     const match = causeMsg.match(/reverted with the following reason:\s*([\s\S]+?)(?:\n\n|\nVersion|$)/i);
@@ -118,7 +265,7 @@ export function parseTxError(error: any): string {
     }
   }
 
-  // 5. Fallback to shortMessage or message
+  // 6. Fallback to shortMessage or message
   if (!revertReason) {
     revertReason = error.shortMessage || error.message || "Contract call failed.";
   }
@@ -126,22 +273,6 @@ export function parseTxError(error: any): string {
   // Clean prefix if "execution reverted:" is prepended
   if (revertReason.includes("execution reverted:")) {
     revertReason = revertReason.replace("execution reverted:", "").trim();
-  }
-
-  // 6. Handle Aave / unknown custom error hex selectors (e.g. 0x3e1d1a10)
-  // Check if revertReason contains a 4-byte custom error selector (starts with 0x and is 8 hex chars long)
-  const hexSelectorMatch = revertReason.match(/(0x[a-fA-F0-9]{8})/);
-  if (hexSelectorMatch) {
-    const selector = hexSelectorMatch[1].toLowerCase();
-    
-    // Check common Aave V3 selectors for a better user-facing message
-    if (selector === "0x3e1d1a10" || selector === "0x5c0b115b") {
-      return "Transaction would fail: Health factor too low / Insufficient collateral on Aave";
-    } else if (selector === "0x1f0d3a5a") {
-      return "Transaction would fail: Borrowing not enabled for asset on Aave";
-    }
-    
-    return `Contract reverted with unrecognized error ${selector} — check 4byte.directory or the source ABI`;
   }
 
   // Intercept typical RPC errors related to gas fee limits and fluctuations

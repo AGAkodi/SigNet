@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useWriteContract, useWaitForTransactionReceipt, usePublicClient } from "wagmi";
 import { useBufferedFees, parseTxError } from "../lib/errorHelper";
+import { isAddress, getAddress } from "viem";
 
 interface AccessGrant {
   id: string;
@@ -48,7 +49,7 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
   userAddress,
   streamHandle,
 }) => {
-  const [auditorAddress, setAuditorAddress] = useState("0x8F9123b37A2027eE4627E5F90e66E15B17457C99");
+  const [auditorAddress, setAuditorAddress] = useState("");
   // Grants list starts empty for clean user session state
   const [grants, setGrants] = useState<AccessGrant[]>([]);
   const [activeAction, setActiveAction] = useState<"GRANT" | "REVOKE" | null>(null);
@@ -95,8 +96,19 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
       alert("Please connect your wallet first to manage ACL permissions.");
       return;
     }
-    if (!auditorAddress || !auditorAddress.startsWith("0x")) {
-      alert("Please enter a valid auditor wallet address.");
+    
+    const trimmed = auditorAddress.trim();
+    if (!isAddress(trimmed)) {
+      setLocalError("Invalid wallet address. Please check the hex format.");
+      return;
+    }
+
+    let normalizedAuditor = "";
+    try {
+      normalizedAuditor = getAddress(trimmed);
+      setAuditorAddress(normalizedAuditor);
+    } catch (err) {
+      setLocalError("Invalid wallet address checksum.");
       return;
     }
 
@@ -116,7 +128,7 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
             address: NOX_COMPUTE_ADDRESS,
             abi: NOX_COMPUTE_ACL_ABI,
             functionName: "allow",
-            args: [targetHandle as `0x${string}`, auditorAddress as `0x${string}`],
+            args: [targetHandle as `0x${string}`, normalizedAuditor as `0x${string}`],
             ...feeData,
           });
           console.log("allow simulation succeeded.");
@@ -124,6 +136,7 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
           console.error("Simulation failed for allow:", simError);
           const parsed = parseTxError(simError);
           setLocalError(parsed);
+          setActiveAction(null);
           return; // Block call from sending to wallet
         }
       }
@@ -132,12 +145,13 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
         address: NOX_COMPUTE_ADDRESS,
         abi: NOX_COMPUTE_ACL_ABI,
         functionName: "allow",
-        args: [targetHandle as `0x${string}`, auditorAddress as `0x${string}`],
+        args: [targetHandle as `0x${string}`, normalizedAuditor as `0x${string}`],
         ...feeData,
       });
     } catch (err) {
       console.error("Grant Access Error:", err);
       setLocalError(parseTxError(err));
+      setActiveAction(null);
     }
   };
 
@@ -242,8 +256,25 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
               type="text"
               value={auditorAddress}
               onChange={(e) => setAuditorAddress(e.target.value)}
+              onBlur={() => {
+                const trimmed = auditorAddress.trim();
+                if (trimmed) {
+                  if (!isAddress(trimmed)) {
+                    setLocalError("Invalid wallet address. Please check the hex format.");
+                  } else {
+                    try {
+                      const normalized = getAddress(trimmed);
+                      setAuditorAddress(normalized);
+                      setLocalError(null);
+                    } catch (e) {
+                      setLocalError("Invalid wallet address checksum.");
+                    }
+                  }
+                }
+              }}
               required
               className="input-field"
+              placeholder="0x..."
             />
           </div>
 

@@ -150,6 +150,7 @@ contract ConfidentialCredit is ReentrancyGuard {
         require(Nox.isInitialized(incomeRate), "IncomeStream: no active stream for employee");
 
         euint256 requestedHandle = Nox.fromExternal(externalRequestedAmount, inputProof);
+        Nox.allowThis(requestedHandle);
         euint256 maxBorrow = Nox.mul(incomeRate, Nox.toEuint256(creditMultiplier));
         ebool isEligible = Nox.ge(maxBorrow, requestedHandle);
 

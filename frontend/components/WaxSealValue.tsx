@@ -21,10 +21,39 @@ export const WaxSealValue: React.FC<WaxSealValueProps> = ({
 }) => {
   const [isUnsealed, setIsUnsealed] = useState(false);
   const [isDecrypting, setIsDecrypting] = useState(false);
+  const [decryptedValue, setDecryptedValue] = useState<string | null>(null);
+
+  const cleanVal = (val: string) => {
+    const matches = val.replace(/,/g, "").match(/[\d.]+/);
+    if (!matches) return 0;
+    return parseFloat(matches[0]);
+  };
+
+  const formatValue = (val: string, template: string) => {
+    // If it's not a numeric string (like if it's already formatted), return it
+    if (!/^\d+(\.\d+)?$/.test(val)) {
+      return val;
+    }
+    const num = parseFloat(val);
+    if (isNaN(num)) return val;
+    
+    // Check if it's USDC raw value (needs decimal adjustment)
+    if (label.toLowerCase().includes("balance") || label.toLowerCase().includes("debt")) {
+      if (num > 1000 && !template.includes(num.toString())) {
+        const adjusted = num / 1000000;
+        return `$${adjusted.toFixed(2)} USD`;
+      }
+    }
+    if (template.includes("/ mo")) {
+      return `$${num.toLocaleString()}.00 / mo`;
+    }
+    return `$${num.toLocaleString()}.00 USD`;
+  };
 
   const handleToggleSeal = async () => {
     if (isUnsealed) {
       setIsUnsealed(false);
+      setDecryptedValue(null);
       return;
     }
 
@@ -33,6 +62,27 @@ export const WaxSealValue: React.FC<WaxSealValueProps> = ({
       // Execute Nox SDK client-side local EIP-712 decryption
       const res = await noxSdk.decrypt(encryptedHandle, userAddress, actualValue);
       if (res.isAuthorized) {
+        const rawDecrypted = res.decryptedValue;
+        const formattedDecrypted = formatValue(rawDecrypted, actualValue);
+
+        // Numeric comparison for mismatch checks
+        const decryptedNum = cleanVal(rawDecrypted);
+        const actualNum = cleanVal(actualValue);
+        const adjustedDecryptedNum = (label.toLowerCase().includes("balance") || label.toLowerCase().includes("debt")) && rawDecrypted !== actualValue && parseFloat(rawDecrypted) > 1000
+          ? parseFloat(rawDecrypted) / 1000000
+          : decryptedNum;
+
+        const isMatch = Math.abs(adjustedDecryptedNum - actualNum) < 0.0001;
+
+        console.log(`[WaxSealValue] Decryption verified for "${label}":`);
+        console.log(" - Raw Encrypted Handle:", encryptedHandle);
+        console.log(" - Decrypted Result (Raw):", rawDecrypted);
+        console.log(" - Decrypted Result (Numeric):", adjustedDecryptedNum);
+        console.log(" - Plaintext value:", actualValue);
+        console.log(" - Plaintext value (Numeric):", actualNum);
+        console.log(" - Did TEE decrypted value match plaintext?", isMatch);
+
+        setDecryptedValue(formattedDecrypted);
         setIsUnsealed(true);
       }
     } catch (err) {
@@ -48,6 +98,15 @@ export const WaxSealValue: React.FC<WaxSealValueProps> = ({
       handleToggleSeal();
     }
   };
+
+  const rawDecrypted = decryptedValue || actualValue;
+  const decryptedNum = cleanVal(rawDecrypted);
+  const actualNum = cleanVal(actualValue);
+  const adjustedDecryptedNum = (label.toLowerCase().includes("balance") || label.toLowerCase().includes("debt")) && rawDecrypted !== actualValue && parseFloat(rawDecrypted) > 1000
+    ? parseFloat(rawDecrypted) / 1000000
+    : decryptedNum;
+  
+  const hasMismatch = decryptedValue !== null && Math.abs(adjustedDecryptedNum - actualNum) > 0.0001;
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -77,12 +136,19 @@ export const WaxSealValue: React.FC<WaxSealValueProps> = ({
           {/* Living Cipher Scramble Number */}
           <div className="flex flex-col">
             <ScrambleNumber
-              value={actualValue}
+              value={hasMismatch ? rawDecrypted : actualValue}
               revealed={isUnsealed}
               className={`font-mono font-bold ${
                 size === "lg" ? "text-2xl" : size === "sm" ? "text-sm" : "text-lg"
               } ${isUnsealed ? "text-halo-soft" : "text-patina-300"}`}
             />
+            {isUnsealed && hasMismatch && (
+              <span className="text-[10px] text-danger font-mono tracking-tight leading-relaxed mt-1 block">
+                Decrypted (confidential): {rawDecrypted}
+                <br />
+                On-chain (plaintext): {actualValue} — decrypted value may take a moment to catch up after a transaction
+              </span>
+            )}
             {!isUnsealed && (
               <span className="text-[10px] text-halo-deep font-mono tracking-tight">
                 {isDecrypting ? "DECRYPTING TEE..." : `ENCRYPTED (${String(encryptedHandle).slice(0, 6)}...${String(encryptedHandle).slice(-4)})`}

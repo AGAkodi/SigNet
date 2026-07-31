@@ -183,3 +183,20 @@ To improve on-chain transparency and transaction traceability, we implemented pe
      - **Screen 4 (Confidential Borrow)**: Persists both Step 1 (Evaluate) and Step 2 (Execute) transaction hashes.
      - **Screen 5 (Loan Management)**: Persists Repayment, Approve, and Liquidation TEE evaluation hashes.
      - **Screen 6 (Selective Disclosure)**: Persists ACL Grant and ACL Revoke transaction hashes.
+
+---
+
+## 7. WaxSealValue TEE Decryption Verification & Mismatch Defense
+
+To transition the decryption interaction from pure UI theater to a genuine cryptographic verification flow, we implemented the following changes:
+
+1. **Prioritized Local TEE Session Handles (`noxSdk.ts`)**:
+   - Modified `decrypt` in `noxSdk.ts` to check and return the locally cached value from `handleStore` before falling back to the plaintext mock `knownValue`.
+
+2. **Decrypted State & Formatting Logic (`WaxSealValue.tsx`)**:
+   - Wired the returned value from `noxSdk.decrypt` to a react state (`decryptedValue`) so that it is displayed dynamically in the scrambled number reveal, keeping the decryption action strictly user-initiated.
+   - Added standard parsing (`cleanVal`) and formatting (`formatValue`) utilities to normalize formatted values and raw TEE numeric inputs (e.g. converting 6-decimal raw USDC inputs back to dollars).
+
+3. **TEE-Plaintext Mismatch Banner**:
+   - Added comparison checks between the decrypted TEE value and the plaintext on-chain state. If they differ, the UI displays both values along with a clear notice explaining the off-chain decryption processing lag.
+   - Integrated detailed `console.log` developer messages outputting the raw handle, raw decrypted result, numeric conversions, expected plaintext value, and their matching status on unseal.

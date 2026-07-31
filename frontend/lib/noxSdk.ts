@@ -162,7 +162,7 @@ export class NoxFrontendSDK {
     const storedVal = this.handleStore.get(handle.toLowerCase());
     return {
       handle,
-      decryptedValue: knownValue || storedVal || "SEALED",
+      decryptedValue: storedVal || knownValue || "SEALED",
       isAuthorized: true,
       viewerAddress,
       isStubbed: true,

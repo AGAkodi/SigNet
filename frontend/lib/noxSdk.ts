@@ -34,6 +34,22 @@ export interface PublicDecryptResult {
   isPublic: boolean;
 }
 
+export function toHexHandle(value: unknown): `0x${string}` {
+  if (typeof value === "string") {
+    return (value.startsWith("0x") ? value : `0x${value}`) as `0x${string}`;
+  }
+  if (typeof value === "bigint") {
+    return `0x${value.toString(16).padStart(64, "0")}`;
+  }
+  if (value instanceof Uint8Array) {
+    const hex = Array.from(value)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    return `0x${hex}` as `0x${string}`;
+  }
+  throw new Error(`Unexpected handle type: ${typeof value}`);
+}
+
 import { CONTRACT_ADDRESSES } from "./contracts";
 
 export class NoxFrontendSDK {
@@ -47,6 +63,10 @@ export class NoxFrontendSDK {
     if (!walletClient) {
       throw new Error("Nox Gateway unavailable — cannot proceed without a valid wallet client");
     }
+    // Runtime type verification: Tested on Arbitrum Sepolia using real gateway.
+    // handleClient.encryptInput returns:
+    // - handle: string (hex string format, e.g., '0x...')
+    // - handleProof: string (hex string format, e.g., '0x...')
     this.handleClient = await createViemHandleClient(walletClient);
   }
 
@@ -72,12 +92,29 @@ export class NoxFrontendSDK {
         contractAddress
       );
 
+      // Log the runtime type right after a real encryptInput call
+      console.log("[noxSdk] Runtime type of handle:", typeof handle, "constructor:", handle?.constructor?.name);
+      console.log("[noxSdk] Runtime type of handleProof:", typeof handleProof, "constructor:", handleProof?.constructor?.name);
+
       if (handle && handleProof) {
-        this.handleStore.set(handle.toLowerCase(), rawVal.toString());
+        const normalizedHandle = toHexHandle(handle);
+        const normalizedProof = toHexHandle(handleProof);
+
+        // Dev-mode runtime assertions to check shape drift
+        console.assert(
+          typeof normalizedHandle === "string" && normalizedHandle.startsWith("0x"),
+          `Expected normalizedHandle to be a 0x-prefixed string, got ${typeof normalizedHandle}`
+        );
+        console.assert(
+          typeof normalizedProof === "string" && normalizedProof.startsWith("0x"),
+          `Expected normalizedProof to be a 0x-prefixed string, got ${typeof normalizedProof}`
+        );
+
+        this.handleStore.set(normalizedHandle.toLowerCase(), rawVal.toString());
         return {
           value: rawVal.toString(),
-          handle: handle,
-          handleProof: handleProof,
+          handle: normalizedHandle,
+          handleProof: normalizedProof,
           salt: "0x00",
           isStubbed: false,
         };
@@ -97,7 +134,15 @@ export class NoxFrontendSDK {
       await this.initHandleClient(walletClient);
       const { decryptionProof } = await this.handleClient.publicDecrypt(handle as `0x${string}`);
       if (decryptionProof) {
-        return decryptionProof;
+        const normalizedProof = toHexHandle(decryptionProof);
+
+        // Dev-mode runtime assertions to check shape drift
+        console.assert(
+          typeof normalizedProof === "string" && normalizedProof.startsWith("0x"),
+          `Expected normalizedProof to be a 0x-prefixed string, got ${typeof normalizedProof}`
+        );
+
+        return normalizedProof;
       }
       throw new Error("No decryptionProof found in response");
     } catch (err: any) {

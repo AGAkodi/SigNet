@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useWriteContract, useWaitForTransactionReceipt, usePublicClient } from "wagmi";
 import { useBufferedFees, parseTxError } from "../lib/errorHelper";
 import { isAddress, getAddress } from "viem";
+import { TxHashLink } from "./TxHashLink";
 
 interface AccessGrant {
   id: string;
@@ -54,6 +55,7 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
   const [grants, setGrants] = useState<AccessGrant[]>([]);
   const [activeAction, setActiveAction] = useState<"GRANT" | "REVOKE" | null>(null);
   const [pendingRevokeId, setPendingRevokeId] = useState<string | null>(null);
+  const [txHash, setTxHash] = useState<string | null>(null);
 
   const { writeContract, data: hash, isPending: isWriting, error: writeError, reset } = useWriteContract();
   const { getBufferedFeeData } = useBufferedFees();
@@ -64,6 +66,12 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
     useWaitForTransactionReceipt({
       hash,
     });
+
+  useEffect(() => {
+    if (hash) {
+      setTxHash(hash);
+    }
+  }, [hash]);
 
   const targetHandle =
     streamHandle && streamHandle.startsWith("0x") && streamHandle.length === 66
@@ -115,6 +123,7 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
     reset();
     setLocalError(null);
     setActiveAction("GRANT");
+    setTxHash(null);
 
     try {
       const feeData = await getBufferedFeeData();
@@ -165,6 +174,7 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
     setLocalError(null);
     setActiveAction("REVOKE");
     setPendingRevokeId(grant.id);
+    setTxHash(null);
 
     try {
       const feeData = await getBufferedFeeData();
@@ -295,20 +305,13 @@ export const Screen6SelectiveDisclosure: React.FC<Screen6SelectiveDisclosureProp
             </div>
           )}
 
-          {isConfirming && hash && (
+          {txHash && (
             <div className="p-4 bg-mist-950 border border-patina-400/60 rounded-xl text-xs font-mono text-halo-soft space-y-1.5">
               <div className="flex items-center gap-2 text-patina-300 font-semibold">
-                <span className="w-2 h-2 rounded-full bg-patina-400 animate-pulse" />
-                {activeAction === "GRANT" ? "ACL Grant" : "ACL Revoke"} transaction submitted! Mining block on Sepolia...
+                <span className={`w-2 h-2 rounded-full ${isConfirmed ? "bg-patina-400" : "bg-patina-400 animate-pulse"}`} />
+                {isConfirmed ? "Transaction confirmed successfully!" : "Transaction submitted! Mining block on Arbitrum Sepolia..."}
               </div>
-              <a
-                href={`https://sepolia.arbiscan.io/tx/${hash}`}
-                target="_blank"
-                rel="noreferrer"
-                className="text-[11px] text-patina-400 hover:underline block truncate"
-              >
-                View on Arbiscan: {hash}
-              </a>
+              <TxHashLink hash={txHash} />
             </div>
           )}
 

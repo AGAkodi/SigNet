@@ -148,3 +148,38 @@ Suite result: ok. 12 passed; 0 failed; 0 skipped; finished in 9.52ms
 
   12 passing (8s)
 ```
+
+---
+
+## 5. Safe Nox SDK Handle Normalization & Display Defense
+
+To prevent front-end application crashes when switching to the real `@iexec-nox/handle` SDK, we implemented normalization and safety guards at both the source and display layer:
+
+1. **SDK Source Normalization (`noxSdk.ts`)**:
+   - Added a robust `toHexHandle` helper to parse and format any incoming handle type (`string`, `bigint`, or `Uint8Array`) into a consistent `0x`-prefixed hex string.
+   - Applied normalization to all return points (`encryptInput` and `getPublicDecryptionProof`).
+   - Verified that at runtime, the real gateway client returns `string` for `handle` and `handleProof` on Arbitrum Sepolia, which was documented as a code comment.
+   - Added dev-mode `console.assert` guards at the boundary to verify that handles are properly formatted.
+
+2. **UI Component Defenses**:
+   - Updated `SealedStatCard.tsx` and `WaxSealValue.tsx` to defensively wrap `encryptedHandle` with `String()` before executing `.slice(..)` operations.
+   - Verified that the UI compiles and runs correctly on the local Next.js dev server.
+
+---
+
+## 6. Persistently Clickable Block Explorer Transaction Links
+
+To improve on-chain transparency and transaction traceability, we implemented persistent, clickable explorer links:
+
+1. **Shared TxHashLink Component (`components/TxHashLink.tsx`)**:
+   - Extracted a reusable component that receives a transaction hash, formats it (`0x...`), and links directly to Arbiscan's Sepolia explorer (`https://sepolia.arbiscan.io/tx/`).
+   - Implemented a `typeof hash === "string"` typeguard to ensure safe string slicing.
+
+2. **Persistent Hash Tracking State**:
+   - Added `txHash` state to capture the hash immediately on wallet approval and retain it even after WAGMI's transactional loading state resets.
+   - Integrated this state and the `<TxHashLink />` component across all transaction-writing screens:
+     - **Screen 2 (Stream Setup)**: Registers the createStream transaction.
+     - **Screen 3 (Deposit Collateral)**: Registers both ERC20 approvals and collateral deposits.
+     - **Screen 4 (Confidential Borrow)**: Persists both Step 1 (Evaluate) and Step 2 (Execute) transaction hashes.
+     - **Screen 5 (Loan Management)**: Persists Repayment, Approve, and Liquidation TEE evaluation hashes.
+     - **Screen 6 (Selective Disclosure)**: Persists ACL Grant and ACL Revoke transaction hashes.

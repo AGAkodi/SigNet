@@ -85,7 +85,7 @@ export const WaxSealValue: React.FC<WaxSealValueProps> = ({
             />
             {!isUnsealed && (
               <span className="text-[10px] text-halo-deep font-mono tracking-tight">
-                {isDecrypting ? "DECRYPTING TEE..." : `ENCRYPTED (${encryptedHandle.slice(0, 6)}...${encryptedHandle.slice(-4)})`}
+                {isDecrypting ? "DECRYPTING TEE..." : `ENCRYPTED (${String(encryptedHandle).slice(0, 6)}...${String(encryptedHandle).slice(-4)})`}
               </span>
             )}
           </div>

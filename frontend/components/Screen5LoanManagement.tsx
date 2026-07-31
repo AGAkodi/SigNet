@@ -6,6 +6,7 @@ import { formatUnits } from "viem";
 import { WaxSealValue } from "./WaxSealValue";
 import { noxSdk } from "../lib/noxSdk";
 import { useBufferedFees, parseTxError } from "../lib/errorHelper";
+import { TxHashLink } from "./TxHashLink";
 import { CONTRACT_ADDRESSES } from "../lib/contracts";
 
 interface Screen5LoanManagementProps {
@@ -92,6 +93,7 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
   const [isLiquidatable, setIsLiquidatable] = useState(false);
   const [activeAction, setActiveAction] = useState<"REPAY" | "EVALUATE" | "APPROVE" | null>(null);
   const [cachedRate, setCachedRate] = useState<number>(0);
+  const [txHash, setTxHash] = useState<string | null>(null);
 
   // Load local cached plaintext rate if available
   useEffect(() => {
@@ -149,6 +151,12 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
     useWaitForTransactionReceipt({
       hash,
     });
+
+  useEffect(() => {
+    if (hash) {
+      setTxHash(hash);
+    }
+  }, [hash]);
 
   // Resolve values
   const borrowAmountVal = userBorrowAmountRaw ? Number(userBorrowAmountRaw) / 1000000 : activeBorrow;
@@ -213,6 +221,7 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
 
     reset();
     setLocalError(null);
+    setTxHash(null);
 
     const requiredAmount = BigInt(num);
     const currentAllowance = allowance ? BigInt(allowance.toString()) : 0n;
@@ -320,6 +329,7 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
 
     reset();
     setLocalError(null);
+    setTxHash(null);
     setActiveAction("EVALUATE");
 
     try {
@@ -489,20 +499,13 @@ export const Screen5LoanManagement: React.FC<Screen5LoanManagementProps> = ({
             </div>
           )}
 
-          {isConfirming && hash && (
+          {txHash && (
             <div className="p-4 bg-mist-950 border border-patina-400/60 rounded-xl text-xs font-mono text-halo-soft space-y-1.5">
               <div className="flex items-center gap-2 text-patina-300 font-semibold">
-                <span className="w-2 h-2 rounded-full bg-patina-400 animate-pulse" />
-                {activeAction === "REPAY" ? "Encrypted Repayment" : activeAction === "APPROVE" ? "USDC Approval" : "Liquidation Evaluation"} submitted! Mining block on Sepolia...
+                <span className={`w-2 h-2 rounded-full ${isConfirmed ? "bg-patina-400" : "bg-patina-400 animate-pulse"}`} />
+                {isConfirmed ? "Transaction confirmed successfully!" : "Transaction submitted! Mining block on Arbitrum Sepolia..."}
               </div>
-              <a
-                href={`https://sepolia.arbiscan.io/tx/${hash}`}
-                target="_blank"
-                rel="noreferrer"
-                className="text-[11px] text-patina-400 hover:underline block truncate"
-              >
-                View on Arbiscan: {hash}
-              </a>
+              <TxHashLink hash={txHash} />
             </div>
           )}
 

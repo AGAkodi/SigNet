@@ -5,6 +5,7 @@ import { useWriteContract, useWaitForTransactionReceipt, usePublicClient, useWal
 import { WaxSealValue } from "./WaxSealValue";
 import { noxSdk, EncryptedInputResult } from "../lib/noxSdk";
 import { useBufferedFees, parseTxError } from "../lib/errorHelper";
+import { TxHashLink } from "./TxHashLink";
 
 import { CONTRACT_ADDRESSES } from "../lib/contracts";
 
@@ -37,6 +38,7 @@ export const Screen2StreamSetup: React.FC<Screen2StreamSetupProps> = ({
   const [monthlySalary, setMonthlySalary] = useState("8000");
   const [encResult, setEncResult] = useState<EncryptedInputResult | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [txHash, setTxHash] = useState<string | null>(null);
 
   const { writeContract, data: hash, isPending: isWriting, error: writeError } = useWriteContract();
   const { getBufferedFeeData } = useBufferedFees();
@@ -47,6 +49,13 @@ export const Screen2StreamSetup: React.FC<Screen2StreamSetupProps> = ({
     useWaitForTransactionReceipt({
       hash,
     });
+
+  // Sync hash to state
+  useEffect(() => {
+    if (hash) {
+      setTxHash(hash);
+    }
+  }, [hash]);
 
   // Re-generate encrypted handle whenever monthly salary or address changes
   useEffect(() => {
@@ -225,20 +234,13 @@ export const Screen2StreamSetup: React.FC<Screen2StreamSetupProps> = ({
             </div>
           )}
 
-          {isConfirming && hash && (
+          {(isConfirming || isConfirmed) && txHash && (
             <div className="p-4 bg-mist-950 border border-patina-400/60 rounded-xl text-xs font-mono text-halo-soft space-y-1.5">
               <div className="flex items-center gap-2 text-patina-300 font-semibold">
-                <span className="w-2 h-2 rounded-full bg-patina-400 animate-pulse" />
-                Transaction submitted! Mining block on Arbitrum Sepolia...
+                <span className={`w-2 h-2 rounded-full ${isConfirmed ? "bg-patina-400" : "bg-patina-400 animate-pulse"}`} />
+                {isConfirmed ? "Transaction confirmed!" : "Transaction submitted! Mining block on Arbitrum Sepolia..."}
               </div>
-              <a
-                href={`https://sepolia.arbiscan.io/tx/${hash}`}
-                target="_blank"
-                rel="noreferrer"
-                className="text-[11px] text-patina-400 hover:underline block truncate"
-              >
-                View on Arbiscan: {hash}
-              </a>
+              <TxHashLink hash={txHash} />
             </div>
           )}
 

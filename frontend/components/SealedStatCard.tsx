@@ -94,7 +94,7 @@ export const SealedStatCard: React.FC<SealedStatCardProps> = ({
               <span className="text-[10px] text-halo-deep font-mono tracking-tight truncate mt-0.5">
                 {isDecrypting
                   ? "DECRYPTING TEE..."
-                  : `ENCRYPTED (${encryptedHandle.slice(0, 6)}...${encryptedHandle.slice(-4)})`}
+                  : `ENCRYPTED (${String(encryptedHandle).slice(0, 6)}...${String(encryptedHandle).slice(-4)})`}
               </span>
             )}
           </div>

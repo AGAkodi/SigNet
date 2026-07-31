@@ -5,6 +5,7 @@ import { useReadContract, useWriteContract, useWaitForTransactionReceipt, usePub
 import { WaxSealValue } from "./WaxSealValue";
 import { noxSdk, EncryptedInputResult } from "../lib/noxSdk";
 import { useBufferedFees, parseTxError } from "../lib/errorHelper";
+import { TxHashLink } from "./TxHashLink";
 import { CONTRACT_ADDRESSES } from "../lib/contracts";
 
 interface Screen4RequestBorrowProps {
@@ -121,6 +122,8 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
   const [step, setStep] = useState<1 | 2>(1);
   const [localErrorEval, setLocalErrorEval] = useState<string | null>(null);
   const [localErrorBorrow, setLocalErrorBorrow] = useState<string | null>(null);
+  const [txHashEval, setTxHashEval] = useState<string | null>(null);
+  const [txHashBorrow, setTxHashBorrow] = useState<string | null>(null);
 
   const { writeContract: writeEval, data: hashEval, isPending: isWritingEval, error: writeErrorEval } = useWriteContract();
   const { isLoading: isConfirmingEval, isSuccess: isConfirmedEval } = useWaitForTransactionReceipt({ hash: hashEval });
@@ -130,6 +133,18 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
   const { getBufferedFeeData } = useBufferedFees();
   const publicClient = usePublicClient();
   const { data: walletClient } = useWalletClient();
+
+  useEffect(() => {
+    if (hashEval) {
+      setTxHashEval(hashEval);
+    }
+  }, [hashEval]);
+
+  useEffect(() => {
+    if (hashBorrow) {
+      setTxHashBorrow(hashBorrow);
+    }
+  }, [hashBorrow]);
 
   // Clamp selected borrow amount if max limit dynamically scales down
   useEffect(() => {
@@ -189,6 +204,7 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
     }
     setLocalErrorEval(null);
     setLocalErrorBorrow(null);
+    setTxHashEval(null);
     try {
       const res = await noxSdk.encryptInput(requestedAmount, CONFIDENTIAL_CREDIT_ADDRESS, userAddress, walletClient);
       setEncResult(res);
@@ -246,6 +262,7 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
   const handleStep2ExecuteBorrow = async () => {
     setLocalErrorEval(null);
     setLocalErrorBorrow(null);
+    setTxHashBorrow(null);
     try {
       if (!publicClient || !userAddress || !walletClient) return;
 
@@ -385,12 +402,23 @@ export const Screen4RequestBorrow: React.FC<Screen4RequestBorrowProps> = ({
             </div>
           )}
 
-          {(isConfirmingEval || isConfirmingBorrow) && (
+          {txHashEval && (
             <div className="p-4 bg-mist-950 border border-patina-400/60 rounded-xl text-xs font-mono text-halo-soft space-y-1.5">
               <div className="flex items-center gap-2 text-patina-300 font-semibold">
-                <span className="w-2 h-2 rounded-full bg-patina-400 animate-pulse" />
-                {step === 1 ? "Mining Step 1 (TEE Eligibility Evaluation)..." : "Mining Step 2 (Aave Borrow Execution)..."}
+                <span className={`w-2 h-2 rounded-full ${isConfirmedEval ? "bg-patina-400" : "bg-patina-400 animate-pulse"}`} />
+                {isConfirmedEval ? "Step 1 TEE Eligibility confirmed!" : "Mining Step 1 (TEE Eligibility Evaluation)..."}
               </div>
+              <TxHashLink hash={txHashEval} />
+            </div>
+          )}
+
+          {txHashBorrow && (
+            <div className="p-4 bg-mist-950 border border-patina-400/60 rounded-xl text-xs font-mono text-halo-soft space-y-1.5">
+              <div className="flex items-center gap-2 text-patina-300 font-semibold">
+                <span className={`w-2 h-2 rounded-full ${isConfirmedBorrow ? "bg-patina-400" : "bg-patina-400 animate-pulse"}`} />
+                {isConfirmedBorrow ? "Step 2 Aave Borrow execution confirmed!" : "Mining Step 2 (Aave Borrow Execution)..."}
+              </div>
+              <TxHashLink hash={txHashBorrow} />
             </div>
           )}
 

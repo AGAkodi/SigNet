@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt, usePublicClient, useWalletClient } from "wagmi";
 import { formatEther, parseUnits, formatUnits } from "viem";
 import { SealedStatCard } from "./SealedStatCard";
+import { TxHashLink } from "./TxHashLink";
 import { noxSdk } from "../lib/noxSdk";
 import { useBufferedFees, parseTxError } from "../lib/errorHelper";
 import { CONTRACT_ADDRESSES } from "../lib/contracts";
@@ -99,6 +100,7 @@ export const Screen3CreditDashboard: React.FC<Screen3CreditDashboardProps> = ({
   const [activeAction, setActiveAction] = useState<"APPROVE" | "DEPOSIT" | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [cachedRate, setCachedRate] = useState<number>(0);
+  const [txHash, setTxHash] = useState<string | null>(null);
 
   const publicClient = usePublicClient();
   const { data: walletClient } = useWalletClient();
@@ -212,6 +214,13 @@ export const Screen3CreditDashboard: React.FC<Screen3CreditDashboardProps> = ({
     hash,
   });
 
+  // Sync hash to state
+  useEffect(() => {
+    if (hash) {
+      setTxHash(hash);
+    }
+  }, [hash]);
+
   // Trigger refetches when transactions complete
   useEffect(() => {
     if (isConfirmed && hash) {
@@ -223,6 +232,9 @@ export const Screen3CreditDashboard: React.FC<Screen3CreditDashboardProps> = ({
         refetchBorrowAmount();
         setAmount("");
       }
+      // Do not clear activeAction immediately if we want to display the txHash alert properly.
+      // Wait, if we keep activeAction, does it affect other states?
+      // Actually, if we set activeAction to null, we can still show the txHash alert. So setting activeAction to null is fine!
       setActiveAction(null);
     }
   }, [isConfirmed, hash, activeAction, refetchCollateral, refetchAllowance, refetchBorrowAmount]);
@@ -345,6 +357,7 @@ export const Screen3CreditDashboard: React.FC<Screen3CreditDashboardProps> = ({
 
     reset();
     setLocalError(null);
+    setTxHash(null);
 
     if (currentAllowance < requiredAmount) {
       setActiveAction("APPROVE");
@@ -558,9 +571,13 @@ export const Screen3CreditDashboard: React.FC<Screen3CreditDashboardProps> = ({
             </div>
           )}
 
-          {activeAction && isConfirming && (
-            <div className="p-3 bg-mist-950/80 border border-mist-700/80 text-patina-300 rounded-xl">
-              Confirming {activeAction} transaction on-chain (waiting for receipt)...
+          {txHash && (
+            <div className="p-4 bg-mist-950 border border-patina-400/60 rounded-xl text-xs font-mono text-halo-soft space-y-1.5">
+              <div className="flex items-center gap-2 text-patina-300 font-semibold">
+                <span className={`w-2 h-2 rounded-full ${isConfirmed ? "bg-patina-400" : "bg-patina-400 animate-pulse"}`} />
+                {isConfirmed ? "Transaction confirmed successfully!" : "Transaction submitted! Mining block on Arbitrum Sepolia..."}
+              </div>
+              <TxHashLink hash={txHash} />
             </div>
           )}
 
